@@ -18,7 +18,7 @@ def sentiment_avg(company):
         print("Positive percentage = " + str(percentage(pos_sentiment, (pos_sentiment + neg_sentiment))))
         data.append([date, str(percentage(pos_sentiment, (pos_sentiment + neg_sentiment)))])
     new_df = pd.DataFrame(data, columns=['Date', 'Sentiment'])
-    new_df.to_csv(f"data/stock_avg_sentiment/{company}_avg_sentiment.csv", index=False)
+    new_df.to_csv(f"data/stock_daily_avg_sentiment/{company}_avg_sentiment.csv", index=False)
 
 def convertEpochToDate(epoch):
     return dt.datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%d")
