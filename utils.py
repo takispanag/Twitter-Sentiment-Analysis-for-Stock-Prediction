@@ -1,24 +1,19 @@
 import pandas as pd
 import re
 import datetime as dt
+import os
 
+def create_folder(path):
+    if os.path.exists(path):
+        print("Path Exists")
+    else:
+        os.mkdir(path)
+        print("Path Created")
 
 def percentage(part, whole):
   return round((float(part)/float(whole)),3)
 
-def sentiment_avg(company):
-    df = pd.read_csv(f"data/{company}_sentiment.csv")
-    pos_sentiment = 0
-    neg_sentiment = 0
-    data = []
-    for date in df["post_date"].unique():
-        pos_sentiment = len(df.loc[(df.post_date == date) & (df.sentiment == 1)].index)
-        neg_sentiment = len(df.loc[(df.post_date == date) & (df.sentiment == -1)].index)
-        print(f"Date = {date}, Pos = {pos_sentiment}, Neg = {neg_sentiment}")
-        print("Positive percentage = " + str(percentage(pos_sentiment, (pos_sentiment + neg_sentiment))))
-        data.append([date, str(percentage(pos_sentiment, (pos_sentiment + neg_sentiment)))])
-    new_df = pd.DataFrame(data, columns=['Date', 'Sentiment'])
-    new_df.to_csv(f"data/stock_daily_avg_sentiment/{company}_avg_sentiment.csv", index=False)
+
 
 def convertEpochToDate(epoch):
     return dt.datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%d")
@@ -39,6 +34,6 @@ def missing_dates(company):
 
     # dates which are not in the sequence
     # are returned
-    missing_dates_list = pd.date_range(start="2015-12-31", end="2019-12-30").difference(df.index)
+    missing_dates_list = pd.date_range(start="2015-01-01", end="2019-12-30").difference(df.index)
     # print(df_copy.loc[df_copy.Date == "2014-12-31"])  # missing_dates[0] - timedelta(days=1))
     return missing_dates_list
