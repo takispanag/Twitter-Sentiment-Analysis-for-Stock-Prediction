@@ -1,14 +1,18 @@
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from torch.optim import Adam
 from torch.utils.data import Dataset, DataLoader
+
+from data_serializer import save_pickle
 from lstm.lstm_model import LSTM
 from torch.nn import L1Loss
 import matplotlib.pyplot as plt
+import copy
 
 
-class RequirementsSample(Dataset):
+class TimeseriesValues(Dataset):
     def __init__(self, features, labels):
         self.features = features
         self.labels = labels
@@ -35,22 +39,26 @@ def sliding_windows(features, labels, batch_size, window_step=1):
     return features_array, labels_array
 
 
-def train(df):
+def train(df, company):
     batch_size = 5
-    epoch_num = 100
+    epoch_num = 200
 
-    x_train, x_test, y_train, y_test = train_test_split(df[["Sentiment", "Close"]], df["Next_Close"], train_size=0.75)
+
+    x_train, x_test, y_train, y_test = train_test_split(df[["Sentiment", "Close"]], df["Next_Close"], train_size=0.75, random_state=11)
+
+    feature_scaler = MinMaxScaler(feature_range=(0, 1))
+    label_scaler = MinMaxScaler(feature_range=(0, 1))
+
+    x_train['Close'] = feature_scaler.fit_transform(x_train['Close'].values.reshape(-1,1))
+    x_test['Close'] = feature_scaler.transform(x_test['Close'].values.reshape(-1,1))
+
+    y_train = pd.DataFrame(label_scaler.fit_transform(y_train.values.reshape(-1,1)),columns=["Next_Close"],index=y_train.index)
+    y_test = pd.DataFrame(label_scaler.transform(y_test.values.reshape(-1,1)),columns=["Next_Close"],index=y_test.index)
+
     x_train, y_train = sliding_windows(x_train, y_train, batch_size)
     x_test, y_test = sliding_windows(x_test, y_test, batch_size)
 
-    feature_scaler = MinMaxScaler(feature_range=(-1, 1))
-    label_scaler = MinMaxScaler(feature_range=(-1, 1))
 
-    x_train = feature_scaler.fit_transform(x_train.reshape(-1, x_train.shape[-1])).reshape(x_train.shape)
-    x_test = feature_scaler.transform(x_test.reshape(-1, x_test.shape[-1])).reshape(x_test.shape)
-
-    y_train = label_scaler.fit_transform(y_train.squeeze())
-    y_test = label_scaler.transform(y_test.squeeze())
 
     model = LSTM(2, 64, 2, 1)
     loss_function = L1Loss()
@@ -59,10 +67,11 @@ def train(df):
     train_error = np.empty(0)
     test_error = np.empty(0)
 
-    train_loader = DataLoader(RequirementsSample(x_train, y_train), batch_size, shuffle=False, drop_last=True)
-    test_loader = DataLoader(RequirementsSample(x_test, y_test), batch_size, shuffle=False, drop_last=True)
+    train_loader = DataLoader(TimeseriesValues(x_train, y_train), batch_size, shuffle=False, drop_last=True)
+    test_loader = DataLoader(TimeseriesValues(x_test, y_test), batch_size, shuffle=False, drop_last=True)
 
-    for i in range(epoch_num):
+    for epoch in range(epoch_num):
+        print(f"Epoch = {epoch}")
         model.train()
         err = []
         for j, k in train_loader:
@@ -81,12 +90,24 @@ def train(df):
             loss = loss_function(y_val_pred.squeeze(), k.squeeze().float())
             err.append(loss.detach().item())
         test_error = np.append(test_error, (sum(err) / len(err)))
+        print(f"Test_error = {(sum(err) / len(err))}")
+        if test_error[-1] <= test_error.min():
+            best_model = copy.deepcopy(model)
+            best_epoch = epoch
 
+
+    #save best model
+    save_pickle(company, "lstm", best_model, "models")
+
+    #save scalers
+    save_pickle(company, "feature_scaler", feature_scaler, "scalers")
+    save_pickle(company, "label_scaler", label_scaler, "scalers")
+
+    print(f"Best_epoch = {best_epoch}, Best_error= {test_error.min()}")
     fig, ax = plt.subplots()
     ax.plot(train_error, label="Train")
     ax.plot(test_error, label="Test")
-    ax.set(xlabel='Epoch', ylabel='Loss',
-           title='LSTM Loss per Epoch')
-
+    ax.set(xlabel='Epoch', ylabel='Loss', title='LSTM Loss per Epoch')
+    plt.axvline(best_epoch, linestyle='--', color='r', label='Early Stopping Checkpoint')
     plt.legend(loc="upper right")
-    plt.show()
+    plt.savefig(f"charts/{company}.png")
