@@ -4,7 +4,7 @@ import time
 from multiprocessing import Process, Manager
 from utils import percentage, create_folder
 
-NUMBER_OF_PROCESSES = 20
+NUMBER_OF_PROCESSES = 10
 
 
 def wordAnalyser(df, sentiment, threadNum):

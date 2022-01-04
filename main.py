@@ -13,7 +13,7 @@ from lstm.lstm_inference import lstm_results
 def inference():
     for company_name in config.company_names:
         data = inference_featurization(company_name)
-        lstm_results(company_name, data)
+        # lstm_results(company_name, data)
         data['Prediction'] = load_pickle(company_name, "linear", "models").predict(data.values.reshape(-1, 2)).reshape(-1, 1)
         data['Prediction'] = data['Prediction'].shift(1)
         data = data.dropna()
@@ -45,5 +45,5 @@ def train_models():
         lstm_results(company_name,df)
 
 if __name__ == "__main__":
-    train_models()
-    # inference()
+    # train_models()
+    inference()
