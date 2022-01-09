@@ -1,7 +1,6 @@
 import pandas as pd
 from matplotlib import pyplot as plt
 
-import config
 from data_serializer import load_pickle
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -19,6 +18,12 @@ class TimeseriesValues(Dataset):
 
 
 def lstm_results(company, data):
+	"""
+	Feeds data to lstm model and returns the prediction
+	:param company: name of company
+	:param data: company data
+	:return: predictions
+	"""
 	feature_scaler = load_pickle(company, "feature_scaler", "scalers")
 	label_scaler = load_pickle(company, "label_scaler", "scalers")
 	model = load_pickle(company, "lstm", "models")
@@ -41,7 +46,7 @@ def lstm_results(company, data):
 	true_next_close.plot(kind="line", y="Next_Close", ax=ax)
 	ax.set(xlabel='Time', ylabel='Value', title=f'LSTM Pred vs Actual {company}')
 	plt.legend(loc="upper right")
-	plt.savefig(f"charts/pred_{company}.png")
-	plt.show()
+	plt.savefig(f"charts/training_charts/lstm_pred_{company}.png")
+	# plt.show()
 
 	print(f"{company} predictions= {predictions}")

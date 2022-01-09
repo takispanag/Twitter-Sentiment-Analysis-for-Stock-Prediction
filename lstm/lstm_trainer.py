@@ -43,7 +43,6 @@ def train(df, company):
     batch_size = 5
     epoch_num = 200
 
-
     x_train, x_test, y_train, y_test = train_test_split(df[["Sentiment", "Close"]], df["Next_Close"], train_size=0.75, random_state=11)
 
     feature_scaler = MinMaxScaler(feature_range=(0, 1))
@@ -107,7 +106,7 @@ def train(df, company):
     fig, ax = plt.subplots()
     ax.plot(train_error, label="Train")
     ax.plot(test_error, label="Test")
-    ax.set(xlabel='Epoch', ylabel='Loss', title='LSTM Loss per Epoch')
+    ax.set(xlabel='Epoch', ylabel='Loss', title=f'LSTM Loss per Epoch {company}')
     plt.axvline(best_epoch, linestyle='--', color='r', label='Early Stopping Checkpoint')
     plt.legend(loc="upper right")
-    plt.savefig(f"charts/{company}.png")
+    plt.savefig(f"charts/lstm_training_{company}.png")

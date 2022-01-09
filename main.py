@@ -1,23 +1,21 @@
+from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 import pandas as pd
 import config
-from data_preprocessing import featurization, inference_featurization
+from data_preprocessing import training_vector_creation, inference_vector_creation
 import yaml
 from data_serializer import save_pickle, load_pickle
+from linear_inference import linear_results
 from lstm import lstm_trainer
 from lstm.lstm_inference import lstm_results
 
-
 def inference():
     for company_name in config.company_names:
-        data = inference_featurization(company_name)
-        # lstm_results(company_name, data)
-        data['Prediction'] = load_pickle(company_name, "linear", "models").predict(data.values.reshape(-1, 2)).reshape(-1, 1)
-        data['Prediction'] = data['Prediction'].shift(1)
-        data = data.dropna()
-        print(f"{company_name}: MAE = {mean_absolute_error(data['Close'], data['Prediction'])}, MAP = {mean_absolute_percentage_error(data['Close'], data['Prediction'])}")
+        linear_results(company_name)
+        data_lstm = pd.read_csv(f"data/training_data/{company_name}_data.csv", index_col=0)
+        lstm_results(company_name, data_lstm)
 
 
 def train_models():
@@ -28,7 +26,7 @@ def train_models():
         print(e)
 
     for company_name in config.company_names:
-        featurization(company_name)
+        training_vector_creation(company_name)
         df = pd.read_csv(f"data/training_data/{company_name}_data.csv", index_col=0)
         # print(f"Correlation:\n {df.corr()}")
         for model, param in zip([LinearRegression()],config.models):

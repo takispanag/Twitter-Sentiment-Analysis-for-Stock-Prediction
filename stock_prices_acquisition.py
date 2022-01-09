@@ -5,6 +5,6 @@ from utils import create_folder
 
 create_folder("data/new_data/stock_prices")
 for company_name in config.company_names:
-    data = yf.download(f"{company_name}", start="2021-12-12", end="2021-12-18").reset_index()
+    data = yf.download(f"{company_name}", start="2015-12-12", end="2021-12-18").reset_index()
     data["Date"] = pd.to_datetime(data["Date"].dt.strftime('%Y/%m/%d'))
     data.to_csv(f"data/new_data/stock_prices/{company_name}_stock_price.csv", index=False)
