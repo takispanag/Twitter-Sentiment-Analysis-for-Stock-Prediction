@@ -3,7 +3,7 @@ from utils import cleanText, convertEpochToDate, create_folder
 
 
 def inference_vector_creation(company_name):
-    df1 = pd.read_csv(f"data/stock_daily_avg_sentiment/{company_name}_avg_sentiment.csv").set_index("Date")
+    df1 = pd.read_csv(f"data/stock_daily_avg_sentiment/v2/{company_name}_avg_sentiment.csv").set_index("Date")
     df2 = pd.read_csv(f"data/new_data/stock_prices/{company_name}_stock_price.csv").set_index("Date")
     df1["Close"] = df2["Close"]
     return df1.dropna()
@@ -11,8 +11,8 @@ def inference_vector_creation(company_name):
 
 def training_vector_creation(company_name):
     create_folder('data/training_data')
-    df1 = pd.read_csv(f'data/stock_prices/{company_name}_stock_price.csv')
-    df2 = pd.read_csv(f'data/stock_daily_avg_sentiment/{company_name}_avg_sentiment.csv')
+    df1 = pd.read_csv(f'data/new_data/stock_prices/{company_name}_stock_price.csv')
+    df2 = pd.read_csv(f'data/new_data/stock_daily_avg_sentiment/v2/{company_name}_avg_sentiment.csv')
     df1 = df1.set_index("Date").dropna()
     df2 = df2.set_index("Date").dropna()
     df2["Close"] = df1["Close"]  # Get previous day close

@@ -4,44 +4,29 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 import pandas as pd
 import config
-from data_preprocessing import training_vector_creation, inference_vector_creation
-import yaml
+from data_preprocessing import training_vector_creation
 from data_serializer import save_pickle, load_pickle
-from linear_inference import linear_results
+from linear_pipeline import linear_results, linear_training
 from lstm import lstm_trainer
 from lstm.lstm_inference import lstm_results
-
-def inference():
-    for company_name in config.company_names:
-        linear_results(company_name)
-        data_lstm = pd.read_csv(f"data/training_data/{company_name}_data.csv", index_col=0)
-        lstm_results(company_name, data_lstm)
+from sentiment_analysis import get_historical_sentiment
+from stock_prices_acquisition import stock_prices
 
 
 def train_models():
-    try:
-        with open('hyperparameter.yaml', 'r') as file:
-            params_list = yaml.safe_load(file)
-    except Exception as e:
-        print(e)
+	for company_name in config.company_names:
+		training_vector_creation(company_name)
+		df = pd.read_csv(f"data/training_data/{company_name}_data.csv", index_col=0)
+		linear_training(df, company_name)
+		#train lstm
+		train_data = df.iloc[:int(df.shape[0] * 0.9)] # get 90% of data for training/validation
+		lstm_trainer.train(train_data, company_name)
+		lstm_results(company_name, train_data, "train")
+		test_data = df.iloc[int(df.shape[0] * 0.9):] # get 10% of data for prediction:)
+		lstm_results(company_name, test_data, "test")
 
-    for company_name in config.company_names:
-        training_vector_creation(company_name)
-        df = pd.read_csv(f"data/training_data/{company_name}_data.csv", index_col=0)
-        # print(f"Correlation:\n {df.corr()}")
-        for model, param in zip([LinearRegression()],config.models):
-            model = GridSearchCV(model, params_list[param])
-            x_train, x_test, y_train, y_test = train_test_split(df[["Sentiment", "Close"]], df["Next_Close"],
-                                                                train_size=0.75, random_state=11)
-            model.fit(x_train, y_train)
-            predictions = model.predict(x_test)
-
-            save_pickle(company_name, param, model.best_estimator_, "models")
-
-        #train lstm
-        # lstm_trainer.train(df,company_name)
-        lstm_results(company_name,df)
 
 if __name__ == "__main__":
-    # train_models()
-    inference()
+	# get_historical_sentiment()
+	# stock_prices()
+	train_models()

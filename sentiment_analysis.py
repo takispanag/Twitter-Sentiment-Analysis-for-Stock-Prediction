@@ -1,7 +1,10 @@
+import numpy as np
 import pandas as pd
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import time
 from multiprocessing import Process, Manager
+
+import config
 from utils import percentage, create_folder
 
 NUMBER_OF_PROCESSES = 10
@@ -25,31 +28,35 @@ def wordAnalyser(df, sentiment, threadNum):
 
 
 def sentiment_Analysis_Parallel(company_name):
-    df = pd.read_csv(f"data/new_data/{company_name}_new_data.csv")
-
+    df = pd.read_csv(f"data/tweets_by_stock/{company_name}_tweets.csv")
+    df = df[["post_date", "body"]]
     manager = Manager()
     sentiments = manager.dict()
     threads = [0] * NUMBER_OF_PROCESSES
+    arr = []
+    for i in range(NUMBER_OF_PROCESSES-1):
+        arr.append(df.iloc[i*(len(df)//NUMBER_OF_PROCESSES):(i + 1) * int(len(df) / NUMBER_OF_PROCESSES)])
+    arr.append(df.iloc[(i+1)*(len(df)//NUMBER_OF_PROCESSES):])
     for process in range(NUMBER_OF_PROCESSES):
         threads[process] = Process(target=wordAnalyser,
-                                   args=(df.iloc[process * int(len(df) / NUMBER_OF_PROCESSES):(process + 1) * int(len(df) / NUMBER_OF_PROCESSES)],
+                                   args=(arr[process],
                                          sentiments, process,))
         threads[process].start()
 
     for process in range(NUMBER_OF_PROCESSES):
         threads[process].join()
 
-    temp_sentiments = []
+    temp_sentiments = np.zeros(0)
     for process in range(NUMBER_OF_PROCESSES):
-        temp_sentiments.append(sentiments[process])
+        temp_sentiments = np.append(temp_sentiments, np.array(sentiments[process]))
     df["sentiment"] = pd.DataFrame(temp_sentiments).to_numpy().flatten()
     # drop rows where sentiment is 0 (neutral)
     df = df[df.sentiment != 0]
-    df.reset_index().iloc[-200000:].to_csv(f"data/new_data/{company_name}_sentiment.csv", index=False)  # get last 200000 rows
+    return df.reset_index(drop=True)
 
 
-def sentiment_avg(company):
-    df = pd.read_csv(f"data/new_data/{company}_sentiment.csv")
+def sentiment_avg(company, df):
+    # df = pd.read_csv(f"data/new_data/{company}_sentiment.csv")
     pos_sentiment = 0
     neg_sentiment = 0
     data = []
@@ -62,10 +69,10 @@ def sentiment_avg(company):
         # print("Positive percentage = " + str(percentage(pos_sentiment, (pos_sentiment + neg_sentiment))))
         data.append([date, str(percentage(pos_sentiment, (pos_sentiment + neg_sentiment)))])
     new_df = pd.DataFrame(data, columns=['Date', 'Sentiment'])
-    create_folder("data/new_data/stock_daily_avg_sentiment")
-    new_df.to_csv(f"data/new_data/stock_daily_avg_sentiment/{company}_avg_sentiment.csv", index=False)
+    create_folder("data/new_data/stock_daily_avg_sentiment/v2")
+    new_df.to_csv(f"data/new_data/stock_daily_avg_sentiment/v2/{company}_avg_sentiment.csv", index=False)
 
 def get_historical_sentiment():
-    for company_name in ["AMZN", "AAPL", "GOOG", "MSFT", "TSLA"]:  # ["amazon", "apple", "google", "microsoft", "tesla"]
-        sentiment_Analysis_Parallel(company_name)  # sentiment analysis and write to csv
-        sentiment_avg(company_name)  # get day avg sentiment and write to csv Format: ["Date", "Sentiment"]
+    for company_name in config.company_names:
+        sentiment_avg(company_name, sentiment_Analysis_Parallel(company_name))  # sentiment analysis and write to csv
+        # get day avg sentiment and write to csv Format: ["Date", "Sentiment"]

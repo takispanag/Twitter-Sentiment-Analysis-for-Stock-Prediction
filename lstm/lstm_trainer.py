@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
+from torch import nn
 from torch.optim import Adam
 from torch.utils.data import Dataset, DataLoader
 
@@ -41,7 +42,6 @@ def sliding_windows(features, labels, batch_size, window_step=1):
 
 def train(df, company):
     batch_size = 5
-    epoch_num = 200
 
     x_train, x_test, y_train, y_test = train_test_split(df[["Sentiment", "Close"]], df["Next_Close"], train_size=0.75, random_state=11)
 
@@ -57,10 +57,8 @@ def train(df, company):
     x_train, y_train = sliding_windows(x_train, y_train, batch_size)
     x_test, y_test = sliding_windows(x_test, y_test, batch_size)
 
-
-
     model = LSTM(2, 64, 2, 1)
-    loss_function = L1Loss()
+    loss_function = nn.MSELoss()
     optimizer = Adam(model.parameters(), lr=0.001)
 
     train_error = np.empty(0)
@@ -69,10 +67,13 @@ def train(df, company):
     train_loader = DataLoader(TimeseriesValues(x_train, y_train), batch_size, shuffle=False, drop_last=True)
     test_loader = DataLoader(TimeseriesValues(x_test, y_test), batch_size, shuffle=False, drop_last=True)
 
-    for epoch in range(epoch_num):
+    epoch = 0
+    best_epoch = None
+    while(True):
         print(f"Epoch = {epoch}")
         model.train()
         err = []
+        # train model
         for j, k in train_loader:
             y_train_pred = model(j.float())
             loss = loss_function(y_train_pred.squeeze(), k.squeeze().float())
@@ -84,15 +85,20 @@ def train(df, company):
 
         model.eval()
         err = []
+        # validate model
         for j, k in test_loader:
             y_val_pred = model(j.float())
             loss = loss_function(y_val_pred.squeeze(), k.squeeze().float())
             err.append(loss.detach().item())
         test_error = np.append(test_error, (sum(err) / len(err)))
         print(f"Test_error = {(sum(err) / len(err))}")
-        if test_error[-1] <= test_error.min():
-            best_model = copy.deepcopy(model)
-            best_epoch = epoch
+        if epoch > 50:
+            if test_error[-1] <= test_error[50:].min():
+                best_model = copy.deepcopy(model)
+                best_epoch = epoch
+            if best_epoch is not None and epoch-best_epoch>20 or epoch>300:
+                break
+        epoch+=1
 
 
     #save best model
@@ -109,4 +115,4 @@ def train(df, company):
     ax.set(xlabel='Epoch', ylabel='Loss', title=f'LSTM Loss per Epoch {company}')
     plt.axvline(best_epoch, linestyle='--', color='r', label='Early Stopping Checkpoint')
     plt.legend(loc="upper right")
-    plt.savefig(f"charts/lstm_training_{company}.png")
+    plt.savefig(f"charts/loss_curves/lstm_training_{company}.png")
