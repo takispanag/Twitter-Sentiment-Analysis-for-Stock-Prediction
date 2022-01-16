@@ -17,9 +17,10 @@ class TimeseriesValues(Dataset):
 		return np.array(self.data[index])
 
 
-def lstm_results(company, data):
+def lstm_results(company, data, mode):
 	"""
 	Feeds data to lstm model and returns the prediction
+	:param mode: chart type
 	:param company: name of company
 	:param data: company data
 	:return: predictions
@@ -27,7 +28,7 @@ def lstm_results(company, data):
 	feature_scaler = load_pickle(company, "feature_scaler", "scalers")
 	label_scaler = load_pickle(company, "label_scaler", "scalers")
 	model = load_pickle(company, "lstm", "models")
-	true_next_close = pd.DataFrame(data['Next_Close'])
+	true_next_close = pd.DataFrame(data['Next_Close']).shift(1)
 	data = data.drop('Next_Close', axis=1)
 
 	index = data.index
@@ -46,7 +47,5 @@ def lstm_results(company, data):
 	true_next_close.plot(kind="line", y="Next_Close", ax=ax)
 	ax.set(xlabel='Time', ylabel='Value', title=f'LSTM Pred vs Actual {company}')
 	plt.legend(loc="upper right")
-	plt.savefig(f"charts/training_charts/lstm_pred_{company}.png")
+	plt.savefig(f"charts/{mode}/lstm_pred_{company}.png")
 	# plt.show()
-
-	print(f"{company} predictions= {predictions}")
