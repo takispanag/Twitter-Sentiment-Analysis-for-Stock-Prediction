@@ -1,7 +1,6 @@
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
+from sklearn.svm import SVR
 import pandas as pd
 import config
 from data_preprocessing import training_vector_creation
@@ -15,20 +14,20 @@ from xgboost import XGBRegressor
 
 
 def train_models():
-	#Linear, XGBOOST train/test
+	#Linear, XGBOOST, SVR train/test
 	for company_name in config.company_names:
 		training_vector_creation(company_name)
 		df = pd.read_csv(f"data/training_data/{company_name}_data.csv", index_col=0)
-		model_names = ["Linear", "XGBoost"]
-		models = [LinearRegression(), XGBRegressor()]
-		for model_name, model in zip(model_names, models):
-			model_training(df, company_name, model_name, model)
-	# train lstm
-	# train_data = df.iloc[:int(df.shape[0] * 0.9)] # get 90% of data for training/validation
-	# # lstm_trainer.train(train_data, company_name)
-	# lstm_results(company_name, train_data, "train")
-	# test_data = df.iloc[int(df.shape[0] * 0.9):] # get 10% of data for prediction:)
-	# lstm_results(company_name, test_data, "test")
+		models = {"Linear": LinearRegression(), "XGBoost": XGBRegressor(), "SVR": SVR()}
+		for model_name in models:
+			model_training(df, company_name, model_name, models[model_name])
+		# train lstm
+		train_data = df.iloc[:int(df.shape[0] * 0.9)] # get 90% of data for training/validation
+		lstm_trainer.train(train_data, company_name)
+		lstm_results(company_name, train_data, "train")
+		test_data = df.iloc[int(df.shape[0] * 0.9):] # get 10% of data for prediction:)
+		# test lstm
+		lstm_results(company_name, test_data, "test")
 
 
 if __name__ == "__main__":

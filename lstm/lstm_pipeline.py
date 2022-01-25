@@ -5,6 +5,8 @@ from data_serializer import load_pickle
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 
+from utils import create_folder
+
 
 class TimeseriesValues(Dataset):
 	def __init__(self, data):
@@ -47,5 +49,6 @@ def lstm_results(company, data, mode):
 	true_next_close.plot(kind="line", y="Next_Close", ax=ax)
 	ax.set(xlabel='Time', ylabel='Value', title=f'LSTM Pred vs Actual {company}')
 	plt.legend(loc="upper right")
+	create_folder(f"charts/{mode}")
 	plt.savefig(f"charts/{mode}/lstm_pred_{company}.png")
 	# plt.show()

@@ -12,6 +12,8 @@ from torch.nn import L1Loss
 import matplotlib.pyplot as plt
 import copy
 
+from utils import create_folder
+
 
 class TimeseriesValues(Dataset):
     def __init__(self, features, labels):
@@ -115,4 +117,5 @@ def train(df, company):
     ax.set(xlabel='Epoch', ylabel='Loss', title=f'LSTM Loss per Epoch {company}')
     plt.axvline(best_epoch, linestyle='--', color='r', label='Early Stopping Checkpoint')
     plt.legend(loc="upper right")
+    create_folder("charts/loss_curves")
     plt.savefig(f"charts/loss_curves/lstm_training_{company}.png")

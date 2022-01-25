@@ -7,6 +7,7 @@ from xgboost import XGBRegressor
 import config
 from data_preprocessing import inference_vector_creation, training_vector_creation
 from data_serializer import load_pickle, save_pickle
+from utils import create_folder
 
 
 def model_training(df, company_name, model_name, model):
@@ -27,6 +28,7 @@ def model_results(company, x, y, mode, model_name):
 	y.plot(kind="line", ax=ax)
 	ax.set(xlabel='Time', ylabel='Value', title=f'{model_name} Regression Pred vs Actual {company}')
 	plt.legend(loc="upper right")
+	create_folder(f"charts/{mode}")
 	plt.savefig(f"charts/{mode}/{model_name}_pred_{company}.png")
 	# plt.show()
 	print(
