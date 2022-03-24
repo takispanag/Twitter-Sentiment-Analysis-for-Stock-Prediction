@@ -4,7 +4,8 @@ from matplotlib import pyplot as plt
 from data_serializer import load_pickle
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
-
+import plotly.graph_objects as go
+import plotly.io as pio
 from utils import create_folder
 
 
@@ -19,36 +20,50 @@ class TimeseriesValues(Dataset):
 		return np.array(self.data[index])
 
 
-def lstm_results(company, data, mode):
+def lstm_results(company, data, true_next_close, mode):
 	"""
 	Feeds data to lstm model and returns the prediction
 	:param mode: chart type
 	:param company: name of company
-	:param data: company data
+	:param data: Features
+	:param true_next_close: Labels
 	:return: predictions
 	"""
 	feature_scaler = load_pickle(company, "feature_scaler", "scalers")
 	label_scaler = load_pickle(company, "label_scaler", "scalers")
 	model = load_pickle(company, "lstm", "models")
-	true_next_close = pd.DataFrame(data['Next_Close']).shift(1)
-	data = data.drop('Next_Close', axis=1)
-
+	results = pd.DataFrame()
+	results["Actual Close"] = true_next_close.shift(1)
 	index = data.index
-	data['Close'] = feature_scaler.transform(data['Close'].values.reshape(-1,1))
+	data.loc[:, data.columns != 'Sentiment'] = feature_scaler.transform(data.loc[:, data.columns != 'Sentiment'])
 	data = data.values
 	loader = DataLoader(TimeseriesValues(data), index.shape[0], shuffle=False, drop_last=True)
+
+	model.eval()
 	for i in loader:
-		i = i.reshape(-1, 1, 2)
-		model.eval()
+		i = i.reshape(1, -1, data.shape[1])
 		predictions = model(i.float())
 
-	predictions = predictions.detach().numpy().reshape(1, -1)
-	true_next_close['Prediction'] = label_scaler.inverse_transform(predictions).reshape(-1, 1)
-	fig, ax = plt.subplots()
-	true_next_close.plot(kind="line", y="Prediction", ax=ax)
-	true_next_close.plot(kind="line", y="Next_Close", ax=ax)
-	ax.set(xlabel='Time', ylabel='Value', title=f'LSTM Pred vs Actual {company}')
-	plt.legend(loc="upper right")
+	results["Prediction"] = label_scaler.inverse_transform(predictions.detach().numpy().reshape(1, -1)).reshape(-1, 1)
+
+	layout = go.Layout(
+		autosize=False,
+		width=2560,
+		height=1440
+	)
+	fig = go.Figure(layout=layout)
+	fig.update_layout(template=pio.templates['plotly_dark'])
+	for column, color in zip(results.columns, ["#32a88b", "#a83232"]):
+		fig.add_trace(
+			go.Scatter(x=results.index, y=results[column], mode='lines+markers', line=dict(color=color), name=column))
 	create_folder(f"charts/{mode}")
-	plt.savefig(f"charts/{mode}/lstm_pred_{company}.png")
-	# plt.show()
+	fig.write_html(f"charts/{mode}/lstm_pred_{company}.html")
+	fig.write_image(f"charts/{mode}/lstm_pred_{company}.png")
+
+	# ax = results.plot()
+	# ax.set(xlabel='Time', ylabel='Value', title=f'LSTM Pred vs Actual {company}')
+	# plt.legend(loc="upper right")
+	# create_folder(f"charts/{mode}")
+	# plt.savefig(f"charts/{mode}/lstm_pred_{company}.png")
+	return results
+# plt.show()

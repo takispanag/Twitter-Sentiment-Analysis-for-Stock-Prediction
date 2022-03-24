@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from torch import nn
 from torch.optim import Adam
@@ -11,7 +10,8 @@ from lstm.lstm_model import LSTM
 from torch.nn import L1Loss
 import matplotlib.pyplot as plt
 import copy
-
+import plotly.graph_objects as go
+import plotly.io as pio
 from utils import create_folder
 
 
@@ -42,36 +42,36 @@ def sliding_windows(features, labels, batch_size, window_step=1):
     return features_array, labels_array
 
 
-def train(df, company):
+def train(x_train, x_val, y_train, y_val, company):
     batch_size = 5
-
-    x_train, x_test, y_train, y_test = train_test_split(df[["Sentiment", "Close"]], df["Next_Close"], train_size=0.75, random_state=11)
 
     feature_scaler = MinMaxScaler(feature_range=(0, 1))
     label_scaler = MinMaxScaler(feature_range=(0, 1))
+    # Transform only stock market Data a.e no Sentiment
+    x_train.loc[:, x_train.columns != 'Sentiment'] = feature_scaler.fit_transform(x_train.loc[:, x_train.columns != 'Sentiment'])
+    x_val.loc[:, x_val.columns != 'Sentiment'] = feature_scaler.transform(x_val.loc[:, x_val.columns != 'Sentiment'])
 
-    x_train['Close'] = feature_scaler.fit_transform(x_train['Close'].values.reshape(-1,1))
-    x_test['Close'] = feature_scaler.transform(x_test['Close'].values.reshape(-1,1))
-
-    y_train = pd.DataFrame(label_scaler.fit_transform(y_train.values.reshape(-1,1)),columns=["Next_Close"],index=y_train.index)
-    y_test = pd.DataFrame(label_scaler.transform(y_test.values.reshape(-1,1)),columns=["Next_Close"],index=y_test.index)
+    y_train = pd.DataFrame(label_scaler.fit_transform(y_train.values.reshape(-1, 1)), columns=["Label"],
+                           index=y_train.index)
+    y_val = pd.DataFrame(label_scaler.transform(y_val.values.reshape(-1, 1)), columns=["Label"],
+                          index=y_val.index)
 
     x_train, y_train = sliding_windows(x_train, y_train, batch_size)
-    x_test, y_test = sliding_windows(x_test, y_test, batch_size)
+    x_val, y_val = sliding_windows(x_val, y_val, batch_size)
 
-    model = LSTM(2, 64, 2, 1)
-    loss_function = nn.MSELoss()
+    model = LSTM(x_train.shape[2], 64, 2, 1)
+    loss_function = nn.L1Loss()
     optimizer = Adam(model.parameters(), lr=0.001)
 
     train_error = np.empty(0)
-    test_error = np.empty(0)
+    val_error = np.empty(0)
 
     train_loader = DataLoader(TimeseriesValues(x_train, y_train), batch_size, shuffle=False, drop_last=True)
-    test_loader = DataLoader(TimeseriesValues(x_test, y_test), batch_size, shuffle=False, drop_last=True)
+    val_loader = DataLoader(TimeseriesValues(x_val, y_val), batch_size, shuffle=False, drop_last=True)
 
     epoch = 0
     best_epoch = None
-    while(True):
+    while True:
         print(f"Epoch = {epoch}")
         model.train()
         err = []
@@ -88,34 +88,41 @@ def train(df, company):
         model.eval()
         err = []
         # validate model
-        for j, k in test_loader:
+        for j, k in val_loader:
             y_val_pred = model(j.float())
             loss = loss_function(y_val_pred.squeeze(), k.squeeze().float())
             err.append(loss.detach().item())
-        test_error = np.append(test_error, (sum(err) / len(err)))
+        val_error = np.append(val_error, (sum(err) / len(err)))
         print(f"Test_error = {(sum(err) / len(err))}")
         if epoch > 50:
-            if test_error[-1] <= test_error[50:].min():
+            if val_error[-1] <= val_error[51:].min():
                 best_model = copy.deepcopy(model)
                 best_epoch = epoch
-            if best_epoch is not None and epoch-best_epoch>20 or epoch>300:
+            if best_epoch is not None and epoch - best_epoch > 20 or epoch > 300:
                 break
-        epoch+=1
+        epoch += 1
 
-
-    #save best model
+    # save best model
     save_pickle(company, "lstm", best_model, "models")
 
-    #save scalers
+    # save scalers
     save_pickle(company, "feature_scaler", feature_scaler, "scalers")
     save_pickle(company, "label_scaler", label_scaler, "scalers")
 
-    print(f"Best_epoch = {best_epoch}, Best_error= {test_error.min()}")
-    fig, ax = plt.subplots()
-    ax.plot(train_error, label="Train")
-    ax.plot(test_error, label="Test")
-    ax.set(xlabel='Epoch', ylabel='Loss', title=f'LSTM Loss per Epoch {company}')
-    plt.axvline(best_epoch, linestyle='--', color='r', label='Early Stopping Checkpoint')
-    plt.legend(loc="upper right")
-    create_folder("charts/loss_curves")
-    plt.savefig(f"charts/loss_curves/lstm_training_{company}.png")
+    print(f"Best_epoch = {best_epoch}, Best_error= {val_error.min()}")
+    df = pd.DataFrame(train_error.reshape(-1, 1), columns=['Train Error'])
+    df['Validation Error'] = val_error.reshape(-1,1)
+    layout = go.Layout(
+        autosize=False,
+        width=2560,
+        height=1440
+    )
+    fig = go.Figure(layout=layout)
+    fig.update_layout(template=pio.templates['plotly_dark'])
+    for column, color in zip(df.columns, ["#32a88b", "#a83232"]):
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df[column], mode='lines+markers', line=dict(color=color), name=column))
+    create_folder(f"charts/loss_curves")
+    fig.add_vline(best_epoch, line_dash="dash", line_color="blue")
+    fig.write_html(f"charts/loss_curves/lstm_training_{company}.html")
+    fig.write_image(f"charts/loss_curves/lstm_training_{company}.png")

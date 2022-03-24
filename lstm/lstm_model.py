@@ -7,16 +7,15 @@ class LSTM(nn.Module):
         super(LSTM, self).__init__()
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first)
         self.drop = Dropout(drop)
-        self.linear = nn.Linear(hidden_size, hidden_size)
-        self.act = nn.Tanh()
-        self.linear2 = nn.Linear(hidden_size, output_dim)
-        self.act2 = nn.Tanh()
+        self.seq = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, output_dim),
+            nn.Sigmoid()
+        )
 
     def forward(self, x):
         output, _ = self.lstm(x)
         output = self.drop(output)
-        output = self.linear(output)
-        output = self.act(output)
-        output = self.linear2(output)
-        output = self.act2(output)
+        output = self.seq(output)
         return output
