@@ -111,7 +111,7 @@ def train(x_train, x_val, y_train, y_val, company):
 
     print(f"Best_epoch = {best_epoch}, Best_error= {val_error.min()}")
     df = pd.DataFrame(train_error.reshape(-1, 1), columns=['Train Error'])
-    df['Validation Error'] = val_error.reshape(-1,1)
+    df['Validation Error'] = val_error.reshape(-1, 1)
     layout = go.Layout(
         autosize=False,
         width=2560,

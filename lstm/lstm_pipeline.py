@@ -1,5 +1,6 @@
 import pandas as pd
 from matplotlib import pyplot as plt
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error, r2_score
 
 from data_serializer import load_pickle
 from torch.utils.data import Dataset, DataLoader
@@ -45,6 +46,17 @@ def lstm_results(company, data, true_next_close, mode):
 		predictions = model(i.float())
 
 	results["Prediction"] = label_scaler.inverse_transform(predictions.detach().numpy().reshape(1, -1)).reshape(-1, 1)
+
+	results = results.dropna()
+	metrics = pd.DataFrame()
+
+	metrics["mae"] = [mean_absolute_error(results["Actual Close"], results["Prediction"])]
+	metrics["mape"] = [mean_absolute_percentage_error(results["Actual Close"], results["Prediction"])]
+	metrics["mse"] = [mean_squared_error(results["Actual Close"], results["Prediction"])]
+	metrics["r2"] = [r2_score(results["Actual Close"], results["Prediction"])]
+
+	create_folder(f"data/metrics/{mode}")
+	metrics.to_csv(f"data/metrics/{mode}/lstm_metrics_{company}.csv")
 
 	layout = go.Layout(
 		autosize=False,
