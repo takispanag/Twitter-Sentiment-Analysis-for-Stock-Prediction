@@ -102,4 +102,6 @@
 - [ ] **Step 2: Implement offline and frozen-model benchmark paths.** Keep pretrained inference opt-in, CPU batched and cached; download public data only by explicit CLI request. Call TFNS results published labels and validation, not expert gold or untouched test.
 - [ ] **Step 3: Evaluate current recovered text separately.** Compare original binary sentiment scores with frozen encoder rescores on a declared reproducible sample, then rerun return forecasting on the same covered ticker/session subset. Preserve the full original corpus and do not represent agreement as accuracy.
 - [ ] **Step 4: Preserve the base commit's original source and 65 chart images under `legacy/original/`; create direct old/new comparison charts from aligned historical forecasts, clearly identifying the original split plots as historical context rather than a valid causal benchmark.**
-- [ ] **Step 5: Record measured benchmark and forecasting results, label provenance, model limitations and reproduction commands.**
+- [ ] **Step 5: Audit the 2025 FinTweet return-labelled dataset for chronology/text contamination; if credible, run text-only chronological test evaluation and report it separately from sentiment classification.**
+- [ ] **Step 6: Assess the 2021–2022 Kaggle `Stock Tweets for Sentiment Analysis and Prediction` text/price corpus as a newer unlabeled-data comparison and support local import where its files are available.**
+- [ ] **Step 7: Record measured benchmark and forecasting results, label provenance, model limitations and reproduction commands.**
