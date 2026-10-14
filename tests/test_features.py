@@ -38,3 +38,22 @@ def test_missing_calendar_session_does_not_make_later_bar_tomorrow():
     prices = prices.drop(index=1).reset_index(drop=True)
     got = build_features(prices, posts)
     assert pd.isna(got.iloc[0].next_open) and pd.isna(got.iloc[0].target_return)
+
+def test_posts_are_limited_to_actual_preceding_nyse_close_even_with_missing_price_bar():
+    prices, posts = market_inputs()
+    # Add an older Monday post; the Tuesday feature must not absorb it even if
+    # the Monday price row is absent from this price archive.
+    old_post = pd.DataFrame({"post_id": ["old"], "ticker": ["XYZ"], "created_at": [pd.Timestamp("2023-12-29 20:00Z")], "available_at": [pd.Timestamp("2023-12-29 20:00Z")], "sentiment_score": [-1.0], "author": ["older"], "time_precision": ["timestamp"]})
+    prices = prices.loc[prices.date.ne(pd.Timestamp("2024-01-03"))].reset_index(drop=True)
+    got = build_features(prices, pd.concat([posts, old_post], ignore_index=True))
+    tuesday = got.loc[got.feature_date.eq(pd.Timestamp("2024-01-02"))].iloc[0]
+    assert tuesday.post_count == 1
+    assert tuesday.sentiment_mean == pytest.approx(1.)
+
+
+def test_weekend_posts_after_friday_close_are_available_monday():
+    prices = pd.DataFrame({"ticker": ["XYZ", "XYZ"], "date": pd.to_datetime(["2024-01-05", "2024-01-08"]), "open": [100., 101.], "high": [101., 103.], "low": [99., 100.], "close": [100., 102.], "volume": [10, 12], "market_open": pd.to_datetime(["2024-01-05 14:30Z", "2024-01-08 14:30Z"]), "market_close": pd.to_datetime(["2024-01-05 21:00Z", "2024-01-08 21:00Z"])})
+    posts = pd.DataFrame({"post_id": ["sun"], "ticker": ["XYZ"], "created_at": [pd.Timestamp("2024-01-07 12:00Z")], "available_at": [pd.Timestamp("2024-01-07 12:00Z")], "sentiment_score": [.5], "author": ["alice"], "time_precision": ["timestamp"]})
+    got = build_features(prices, posts)
+    monday = got.loc[got.feature_date.eq(pd.Timestamp("2024-01-08"))].iloc[0]
+    assert monday.post_count == 1 and monday.sentiment_mean == pytest.approx(.5)

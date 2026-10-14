@@ -56,6 +56,7 @@ def test_forward_forecast_uses_latest_closed_row_without_target_prices(tmp_path)
     assert (pd.to_datetime(result.issued_at, utc=True) <= as_of).all()
     assert (as_of < pd.to_datetime(result.target_open_at, utc=True)).all()
     assert not ({"actual", "actual_return", "target_open", "target_close", "next_open", "next_close", "training_rows"} & set(result.columns))
+    assert "current_close" in result.columns
 
 
 def test_paired_comparison_uses_hand_calculated_same_date_losses():
@@ -78,7 +79,7 @@ def test_research_metadata_records_revision_and_local_source_hashes(tmp_path):
     run_research(research_frame(20), tmp_path, seed=5, n_splits=1)
     metadata = __import__("json").loads((tmp_path / "metadata.json").read_text())
     assert metadata["code_revision"]
-    assert metadata["working_tree_dirty"] is True
+    assert isinstance(metadata["working_tree_dirty"], bool)
     assert len(metadata["source_hashes"]["research.py"]) == 64
 
 def test_comparison_treats_floating_point_noise_as_no_difference():
@@ -90,4 +91,58 @@ def test_comparison_treats_floating_point_noise_as_no_difference():
     ]
     got = _comparisons(pd.DataFrame(rows), 11).iloc[0]
     assert got.sentiment_mae_improvement_vs_price_attention == 0
-    assert "no meaningful difference" in got.evidence
+    assert np.isnan(got.bootstrap_95_low) and np.isnan(got.bootstrap_95_high)
+    assert "insufficient" in got.evidence
+
+
+def test_next_close_persistence_uses_each_test_row_current_close(tmp_path):
+    frame = research_frame(24)
+    frame["target_kind"] = "next_close"
+    frame["current_close"] = 200 + np.arange(len(frame))
+    frame["next_close"] = frame["current_close"] + 1
+    run_research(frame, tmp_path, seed=19, n_splits=1)
+    forecasts = pd.read_csv(tmp_path / "forecasts.csv")
+    baseline = forecasts.loc[forecasts.model.eq("naive")]
+    expected = frame.set_index("feature_date").loc[pd.to_datetime(baseline.feature_date), "current_close"].to_numpy()
+    np.testing.assert_allclose(baseline.prediction.to_numpy(), expected)
+    np.testing.assert_allclose(baseline.current_close.to_numpy(), expected)
+
+
+def test_minibatches_never_cross_train_validation_boundary():
+    from sentiment_stock.research import _training_batches
+    assert list(_training_batches(40, split=19, batch_size=16)) == [(0, 16), (16, 19)]
+
+
+def test_source_hashes_skip_absent_legacy_files(tmp_path):
+    from sentiment_stock.research import _source_hashes
+    package = tmp_path / "sentiment_stock"
+    package.mkdir()
+    (package / "research.py").write_text("package source", encoding="utf-8")
+    hashes = _source_hashes(package, tmp_path)
+    assert len(hashes["research.py"]) == 64
+    assert "main.py" not in hashes
+    assert "lstm_model.py" not in hashes
+
+def test_mixed_target_kinds_are_rejected():
+    frame = research_frame(20)
+    frame["target_kind"] = "return"
+    frame.loc[frame.index[-1], "target_kind"] = "next_close"
+    from sentiment_stock.research import _target_column
+    with pytest.raises(ValueError, match="mixed target kinds"):
+        _target_column(frame)
+
+
+def test_too_few_pairs_do_not_claim_a_bootstrap_interval():
+    from sentiment_stock.research import _bootstrap_delta
+    estimate, low, high = _bootstrap_delta(np.array([.25, .5]), seed=11)
+    assert estimate == pytest.approx(.375)
+    assert np.isnan(low) and np.isnan(high)
+
+
+
+def test_neural_inner_split_reserves_distinct_chronological_validation_tail():
+    from sentiment_stock.research import _training_validation_split
+    assert _training_validation_split(30) == 25
+    assert _training_validation_split(2) == 1
+    with pytest.raises(ValueError, match="two windows"):
+        _training_validation_split(1)

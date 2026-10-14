@@ -36,6 +36,8 @@ FEATURE_SETS = {
 
 def _target_column(features: pd.DataFrame) -> str:
     kinds = features.get("target_kind", pd.Series("return", index=features.index)).dropna().unique()
+    if len(kinds) > 1:
+        raise ValueError("mixed target kinds are not supported in one research run")
     kind = str(kinds[0]) if len(kinds) else "return"
     if kind not in TARGETS:
         raise ValueError(f"unsupported target_kind: {kind}")
@@ -84,13 +86,13 @@ def _lstm_predict(train_x, train_y, test_x, seed: int, context_x=None, artifact_
             return self.head(out[:, -1, :]).squeeze(-1)
     model = Regressor()
     optimizer, loss_fn = torch.optim.Adam(model.parameters(), lr=.01), nn.L1Loss()
-    split = max(1, int(len(xt) * .85))
+    split = _training_validation_split(len(xt))
     best, patience, best_state = float("inf"), 0, None
     for _ in range(20):
         model.train()
-        for start in range(0, split, 16):
+        for start, end in _training_batches(len(xt), split, 16):
             optimizer.zero_grad()
-            loss = loss_fn(model(xt[start:start + 16]), yt[start:start + 16])
+            loss = loss_fn(model(xt[start:end]), yt[start:end])
             loss.backward()
             optimizer.step()
         model.eval()
@@ -113,6 +115,19 @@ def _lstm_predict(train_x, train_y, test_x, seed: int, context_x=None, artifact_
         Path(artifact_path).parent.mkdir(parents=True, exist_ok=True)
         torch.save({"state_dict": model.state_dict(), "input_medians": torch.tensor(medians), "input_mean": torch.tensor(mean), "input_std": torch.tensor(std), "lookback": LOOKBACK, "hidden_size": 12, "feature_columns": list(feature_columns or [])}, artifact_path)
     return predictions
+
+
+def _training_validation_split(n_windows: int) -> int:
+    """Reserve a non-empty chronological validation tail from inner train windows."""
+    if n_windows < 2:
+        raise ValueError("LSTM requires at least two windows to reserve validation data")
+    return min(n_windows - 1, max(1, int(n_windows * .85)))
+
+
+def _training_batches(n_rows: int, split: int, batch_size: int):
+    """Yield training-only half-open minibatch slices."""
+    for start in range(0, min(split, n_rows), batch_size):
+        yield start, min(start + batch_size, split, n_rows)
 
 
 def _model_names(include_models: bool) -> list[str]:
@@ -177,8 +192,8 @@ def _bootstrap_delta(values: np.ndarray, seed: int, block_length: int = 5) -> tu
     if len(values) < 3:
         point = float(values.mean())
         if abs(point) <= 1e-12:
-            return 0.0, 0.0, 0.0
-        return point, point, point
+            return 0.0, np.nan, np.nan
+        return point, np.nan, np.nan
     samples = []
     for _ in range(1000):
         chosen = []
@@ -219,9 +234,10 @@ def run_research(features: pd.DataFrame, output: Path, *, seed: int = 11, n_spli
             y_train = train[target_col].astype(float).to_numpy()
             train_y = np.nan_to_num(y_train, nan=0.0)
             actual = test[target_col].astype(float).to_numpy()
-            naive = float(train_y.mean()) if target_col != "next_close" else float(train.next_close.iloc[-1])
+            naive = float(train_y.mean()) if target_col != "next_close" else None
             for local_i, (_, test_row) in enumerate(test.iterrows()):
-                base = _forecast_row(test_row, run_id, ticker, fold, "naive", "naive", naive, actual[local_i], dataset_metadata, pd.to_datetime(train.target_close_at, utc=True).max() if "target_close_at" in train else pd.NaT)
+                naive_prediction = naive if naive is not None else float(test_row.current_close)
+                base = _forecast_row(test_row, run_id, ticker, fold, "naive", "naive", naive_prediction, actual[local_i], dataset_metadata, pd.to_datetime(train.target_close_at, utc=True).max() if "target_close_at" in train else pd.NaT)
                 forecast_rows.append(base)
             for model_name in models:
                 for feature_set, columns in FEATURE_SETS.items():
@@ -262,10 +278,17 @@ def run_research(features: pd.DataFrame, output: Path, *, seed: int = 11, n_spli
     for (ticker, model_name, feature_set), estimator in fitted.items():
         joblib.dump(estimator, model_dir / f"{ticker}_{model_name}_{feature_set}.joblib")
     revision, dirty = _git_state(Path(__file__).resolve().parents[1])
-    source_hashes = {name: _sha_file(Path(__file__).with_name(name)) for name in ("features.py", "research.py", "sequence.py", "cli.py")}
-    meta = {"run_id": run_id, "seed": seed, "n_splits": n_splits, "include_models": include_models, "model_configuration": {"linear_svr": {"max_iter": 20000, "tol": 0.05}, "lstm": {"lookback": LOOKBACK, "hidden_size": 12, "max_epochs": 20, "early_stopping_patience": 4}}, "target_column": target_col, "feature_sets": FEATURE_SETS, "feature_definitions": {"price": PRICE_FEATURES, "attention": ATTENTION_FEATURES, "sentiment": SENTIMENT_FEATURES}, "target_definitions": {"return": "next session close / next session open - 1", "next_close": "next session close price", "volatility": "absolute next session open-to-close return (single-session realized-volatility proxy)"}, "dataset_metadata": dataset_metadata or {}, "dataset_type": (dataset_metadata or {}).get("dataset_type", "unspecified"), "input_rows": len(frame), "covered_dates": [frame.feature_date.min().date().isoformat(), frame.feature_date.max().date().isoformat()], "sentiment_coverage": {"scored_session_share": float(1 - pd.to_numeric(frame.sentiment_missing, errors="coerce").fillna(1).mean()), "no_post_share": float(pd.to_numeric(frame.sentiment_missing, errors="coerce").fillna(1).mean()), "scored_date_range": [frame.loc[frame.sentiment_missing.eq(0), "feature_date"].min().date().isoformat() if frame.sentiment_missing.eq(0).any() else None, frame.loc[frame.sentiment_missing.eq(0), "feature_date"].max().date().isoformat() if frame.sentiment_missing.eq(0).any() else None]}, "input_hash": input_hash, "code_revision": revision, "working_tree_dirty": dirty, "source_hashes": source_hashes, "python": platform.python_version(), "packages": {pkg: _version(pkg) for pkg in ["numpy", "pandas", "scikit-learn", "xgboost", "torch"]}, "time_assumptions": "Inputs available through each market close; forecast issued 15 minutes after close; date-only posts become available at next UTC midnight."}
+    source_hashes = _source_hashes(Path(__file__).parent, Path(__file__).resolve().parents[1])
+    meta = {"run_id": run_id, "seed": seed, "n_splits": n_splits, "include_models": include_models, "model_configuration": {"linear_svr": {"max_iter": 20000, "tol": 0.05}, "lstm": {"lookback": LOOKBACK, "hidden_size": 12, "max_epochs": 20, "early_stopping_patience": 4}}, "target_column": target_col, "feature_sets": FEATURE_SETS, "feature_definitions": {"price": PRICE_FEATURES, "price_context": ["current_close"], "attention": ATTENTION_FEATURES, "sentiment": SENTIMENT_FEATURES}, "target_definitions": {"return": "next session close / next session open - 1", "next_close": "next session close price", "volatility": "absolute next session open-to-close return (single-session realized-volatility proxy)"}, "dataset_metadata": dataset_metadata or {}, "dataset_type": (dataset_metadata or {}).get("dataset_type", "unspecified"), "input_rows": len(frame), "covered_dates": [frame.feature_date.min().date().isoformat(), frame.feature_date.max().date().isoformat()], "sentiment_coverage": {"scored_session_share": float(1 - pd.to_numeric(frame.sentiment_missing, errors="coerce").fillna(1).mean()), "no_post_share": float(pd.to_numeric(frame.sentiment_missing, errors="coerce").fillna(1).mean()), "scored_date_range": [frame.loc[frame.sentiment_missing.eq(0), "feature_date"].min().date().isoformat() if frame.sentiment_missing.eq(0).any() else None, frame.loc[frame.sentiment_missing.eq(0), "feature_date"].max().date().isoformat() if frame.sentiment_missing.eq(0).any() else None]}, "input_hash": input_hash, "code_revision": revision, "working_tree_dirty": dirty, "source_hashes": source_hashes, "python": platform.python_version(), "packages": {pkg: _version(pkg) for pkg in ["numpy", "pandas", "scikit-learn", "xgboost", "torch"]}, "time_assumptions": "Inputs available through each market close; forecast issued 15 minutes after close; date-only posts become available at next UTC midnight."}
     (output / "metadata.json").write_text(json.dumps(meta, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     return {"output": str(output), "run_id": run_id, "forecast_rows": len(forecasts), "metric_rows": len(metrics), "models": models}
+
+
+def _source_hashes(package_dir, repo_root):
+    """Hash package sources and optional legacy files when they are installed."""
+    candidates = {name: Path(package_dir) / name for name in ("features.py", "research.py", "sequence.py", "cli.py")}
+    candidates.update({"lstm_model.py": Path(repo_root) / "lstm" / "lstm_model.py", "main.py": Path(repo_root) / "main.py"})
+    return {name: _sha_file(path) for name, path in candidates.items() if path.is_file()}
 
 
 def _sha_file(path):
@@ -292,7 +315,7 @@ def _version(name):
 
 def _forecast_row(row, run_id, ticker, fold, model, feature_set, prediction, actual, dataset_metadata, training_cutoff=pd.NaT):
     d_type = (dataset_metadata or {}).get("dataset_type", "unspecified")
-    return {"run_id": run_id, "ticker": ticker, "feature_date": row.feature_date, "issued_at": row.issued_at, "input_cutoff": row.input_cutoff, "training_cutoff": training_cutoff, "target_date": row.get("target_date"), "target_open_at": row.get("target_open_at"), "target_close_at": row.get("target_close_at"), "target_open": row.get("next_open"), "target_close": row.get("next_close"), "target_kind": row.get("target_kind", "return"), "model": model, "feature_set": feature_set, "fold": fold, "prediction": prediction, "actual": actual, "actual_return": row.get("target_return"), "volatility_regime": row.get("volatility_regime", "unknown"), "sentiment_missing": row.get("sentiment_missing", 1), "post_count": row.get("post_count", 0), "event_day": row.get("event_day", 0), "dataset_type": d_type}
+    return {"run_id": run_id, "ticker": ticker, "feature_date": row.feature_date, "issued_at": row.issued_at, "input_cutoff": row.input_cutoff, "training_cutoff": training_cutoff, "target_date": row.get("target_date"), "target_open_at": row.get("target_open_at"), "target_close_at": row.get("target_close_at"), "target_open": row.get("next_open"), "target_close": row.get("next_close"), "current_close": row.get("current_close"), "target_kind": row.get("target_kind", "return"), "model": model, "feature_set": feature_set, "fold": fold, "prediction": prediction, "actual": actual, "actual_return": row.get("target_return"), "volatility_regime": row.get("volatility_regime", "unknown"), "sentiment_missing": row.get("sentiment_missing", 1), "post_count": row.get("post_count", 0), "event_day": row.get("event_day", 0), "dataset_type": d_type}
 
 
 def _comparisons(errors, seed):
@@ -311,7 +334,7 @@ def _comparisons(errors, seed):
         baseline_rows = baseline_rows.reindex(values.index)
         mae_naive = np.abs(baseline_rows.prediction.to_numpy(dtype=float) - actual)
         delta, low, high = _bootstrap_delta(mae_att - mae_sent, seed + int(fold))
-        rows.append({"ticker": ticker, "model": model, "fold": fold, "n": len(actual), "no_post_share": float(pd.to_numeric(group.sentiment_missing, errors="coerce").fillna(1).mean()), "price_attention_mae": float(mae_att.mean()), "price_sentiment_mae": float(mae_sent.mean()), "naive_mae": float(mae_naive.mean()), "sentiment_mae_improvement_vs_price_attention": delta, "bootstrap_95_low": low, "bootstrap_95_high": high, "block_length": 5, "bootstrap_seed": seed + int(fold), "interval_method": "paired time-block bootstrap of price_attention MAE minus price_sentiment MAE", "evidence": "no meaningful difference within 1e-12 MAE absolute tolerance" if delta == 0 and low == 0 and high == 0 else ("uncertain; 95% MAE-improvement interval includes zero" if low <= 0 <= high else "95% MAE-improvement interval excludes zero; retrospective data caveats apply")})
+        rows.append({"ticker": ticker, "model": model, "fold": fold, "n": len(actual), "no_post_share": float(pd.to_numeric(group.sentiment_missing, errors="coerce").fillna(1).mean()), "price_attention_mae": float(mae_att.mean()), "price_sentiment_mae": float(mae_sent.mean()), "naive_mae": float(mae_naive.mean()), "sentiment_mae_improvement_vs_price_attention": delta, "bootstrap_95_low": low, "bootstrap_95_high": high, "block_length": 5, "bootstrap_seed": seed + int(fold), "interval_method": "paired time-block bootstrap of price_attention MAE minus price_sentiment MAE", "evidence": "insufficient paired observations for a 95% interval" if not np.isfinite(low) or not np.isfinite(high) else ("no meaningful difference within 1e-12 MAE absolute tolerance" if delta == 0 and low == 0 and high == 0 else ("uncertain; 95% MAE-improvement interval includes zero" if low <= 0 <= high else "95% MAE-improvement interval excludes zero; retrospective data caveats apply"))})
     return pd.DataFrame(rows)
 
 
@@ -352,7 +375,7 @@ def forecast_latest(prices: pd.DataFrame, posts: pd.DataFrame, output: Path, *, 
         estimator.fit(_safe_features(resolved, columns), resolved.target_return.astype(float))
         prediction = float(estimator.predict(_safe_features(latest, columns))[0])
         target_date = pd.Timestamp(schedule.index[0]).normalize()
-        records.append({"run_id": hashlib.sha256(f"forward|{seed}|{ticker}|{issued_at.isoformat()}|{model}|{feature_set}".encode()).hexdigest()[:16], "ticker": ticker, "feature_date": latest.feature_date.iloc[0], "issued_at": issued_at, "input_cutoff": latest.input_cutoff.iloc[0], "training_cutoff": resolved.target_close_at.max(), "target_date": target_date, "target_open_at": target_open_at, "target_close_at": target_close_at, "target_kind": "return", "model": model, "feature_set": feature_set, "fold": "forward", "prediction": prediction, "volatility_regime": latest.volatility_regime.iloc[0], "sentiment_missing": latest.sentiment_missing.iloc[0], "post_count": latest.post_count.iloc[0], "dataset_type": "forward"})
+        records.append({"run_id": hashlib.sha256(f"forward|{seed}|{ticker}|{issued_at.isoformat()}|{model}|{feature_set}".encode()).hexdigest()[:16], "ticker": ticker, "feature_date": latest.feature_date.iloc[0], "issued_at": issued_at, "input_cutoff": latest.input_cutoff.iloc[0], "current_close": latest.current_close.iloc[0], "training_cutoff": resolved.target_close_at.max(), "target_date": target_date, "target_open_at": target_open_at, "target_close_at": target_close_at, "target_kind": "return", "model": model, "feature_set": feature_set, "fold": "forward", "prediction": prediction, "volatility_regime": latest.volatility_regime.iloc[0], "sentiment_missing": latest.sentiment_missing.iloc[0], "post_count": latest.post_count.iloc[0], "dataset_type": "forward"})
         model_dir = Path(output) / "models"
         model_dir.mkdir(parents=True, exist_ok=True)
         joblib.dump(estimator, model_dir / f"{ticker}_{model}_{feature_set}.joblib")
@@ -360,6 +383,6 @@ def forecast_latest(prices: pd.DataFrame, posts: pd.DataFrame, output: Path, *, 
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     result.to_csv(output / "forecast.csv", index=False)
-    metadata = {"forecasts": records, "training_rows_by_ticker": {str(row["ticker"]): int(built.loc[(built.ticker == row["ticker"]) & built.target_return.notna() & (pd.to_datetime(built.target_close_at, utc=True) <= as_of)].shape[0]) for row in records}, "feature_columns": columns, "target_definition": "next session open-to-close simple return", "actuals_included": False, "training_rule": "Only target closes at or before as_of are eligible.", "packages": {pkg: _version(pkg) for pkg in ["numpy", "pandas", "scikit-learn"]}, "time_assumptions": "Inputs are available through feature-session close; issue is 15 minutes later; as_of must be before next NYSE open.", "input_hash": hashlib.sha256(pd.util.hash_pandas_object(built, index=True).values.tobytes()).hexdigest(), "python": platform.python_version(), "packages": {pkg: _version(pkg) for pkg in ["numpy", "pandas", "scikit-learn"]}, "code_revision": _git_state(Path(__file__).resolve().parents[1])[0], "source_hashes": {**{name: _sha_file(Path(__file__).with_name(name)) for name in ("features.py", "research.py", "sequence.py", "cli.py")}, "lstm_model.py": _sha_file(Path(__file__).resolve().parents[1] / "lstm" / "lstm_model.py"), "main.py": _sha_file(Path(__file__).resolve().parents[1] / "main.py")}, "model": model, "feature_set": feature_set, "seed": seed}
+    metadata = {"forecasts": records, "training_rows_by_ticker": {str(row["ticker"]): int(built.loc[(built.ticker == row["ticker"]) & built.target_return.notna() & (pd.to_datetime(built.target_close_at, utc=True) <= as_of)].shape[0]) for row in records}, "feature_columns": columns, "context_columns": ["current_close"], "target_definition": "next session open-to-close simple return", "actuals_included": False, "training_rule": "Only target closes at or before as_of are eligible.", "packages": {pkg: _version(pkg) for pkg in ["numpy", "pandas", "scikit-learn"]}, "time_assumptions": "Inputs are available through feature-session close; issue is 15 minutes later; as_of must be before next NYSE open.", "input_hash": hashlib.sha256(pd.util.hash_pandas_object(built, index=True).values.tobytes()).hexdigest(), "python": platform.python_version(), "packages": {pkg: _version(pkg) for pkg in ["numpy", "pandas", "scikit-learn"]}, "code_revision": _git_state(Path(__file__).resolve().parents[1])[0], "source_hashes": _source_hashes(Path(__file__).parent, Path(__file__).resolve().parents[1]), "model": model, "feature_set": feature_set, "seed": seed}
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2, default=str) + "\n", encoding="utf-8")
     return result

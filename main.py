@@ -24,6 +24,21 @@ def chronological_splits(data, train_fraction=.8, validation_fraction=.2):
     fit_end = int(len(train_validation) * (1 - validation_fraction))
     return train_validation.iloc[:fit_end], train_validation.iloc[fit_end:], data.iloc[train_end:]
 
+def _date_index(index):
+    dates = pd.to_datetime(index, utc=True).tz_convert(None).normalize()
+    return pd.DatetimeIndex(dates)
+
+def _align_sentiment(company_data, company_sentiment):
+    """Attach sentiment by normalized session date, never by row position."""
+    prices = company_data.copy()
+    scores = company_sentiment.iloc[:, 0].copy()
+    prices.index = _date_index(prices.index)
+    scores.index = _date_index(scores.index)
+    if scores.index.has_duplicates:
+        raise ValueError("sentiment data contains duplicate session dates")
+    prices["Sentiment"] = scores.reindex(prices.index).to_numpy()
+    return prices
+
 def train_models():
     config = _config()
     from sklearn.linear_model import LinearRegression
@@ -36,7 +51,7 @@ def train_models():
     for company_name in _company_names(config):
         company_sentiment = pd.read_csv(f"data/sentiment/{company_name}.csv", index_col=0)
         company_data = pd.read_csv(f"data/stock_prices/{company_name}_stock_price.csv", index_col=0)
-        company_data['Sentiment'] = company_sentiment.iloc[:, 0].to_numpy()
+        company_data = _align_sentiment(company_data, company_sentiment)
         company_data['Label'] = company_data['Close'].shift(-1)
         company_data = company_data.dropna().sort_index().round(5)
         fit_data, val_data, test_data = chronological_splits(company_data)

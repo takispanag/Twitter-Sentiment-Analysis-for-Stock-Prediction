@@ -31,6 +31,8 @@ def build_features(prices: pd.DataFrame, posts: pd.DataFrame, target: str = "ret
         opens = pd.to_datetime(market.market_open, utc=True)
         available_times = pd.to_datetime(ticker_posts.available_at, utc=True).to_numpy(dtype="datetime64[ns]") if len(ticker_posts) else np.array([], dtype="datetime64[ns]")
         days = pd.to_datetime(market.date).dt.normalize()
+        sessions = calendar.schedule(start_date=(days.min() - pd.Timedelta(days=10)).date().isoformat(), end_date=days.max().date().isoformat())
+        session_closes = pd.Series(pd.to_datetime(sessions.market_close, utc=True).to_numpy(), index=pd.DatetimeIndex(sessions.index).normalize())
         daily_returns = market.close.pct_change()
         trailing_vol = daily_returns.rolling(5, min_periods=2).std()
         session_events = None
@@ -41,7 +43,9 @@ def build_features(prices: pd.DataFrame, posts: pd.DataFrame, target: str = "ret
         else:
             session_events = set()
         for i, bar in market.iterrows():
-            left = int(np.searchsorted(available_times, np.datetime64(closes.iloc[i - 1].tz_localize(None)) if i else np.datetime64("1677-09-22"), side="right")) if len(available_times) else 0
+            prior_sessions = session_closes.loc[session_closes.index < days.iloc[i]]
+            prior_close = prior_sessions.iloc[-1] if len(prior_sessions) else pd.Timestamp("1677-09-22", tz="UTC")
+            left = int(np.searchsorted(available_times, np.datetime64(prior_close.tz_localize(None)), side="right")) if len(available_times) else 0
             right = int(np.searchsorted(available_times, np.datetime64(closes.iloc[i].tz_localize(None)), side="right")) if len(available_times) else 0
             available = ticker_posts.iloc[left:right]
             scores = pd.to_numeric(available.get("sentiment_score", pd.Series(dtype=float)), errors="coerce").dropna()
@@ -72,7 +76,7 @@ def build_features(prices: pd.DataFrame, posts: pd.DataFrame, target: str = "ret
                 q = float(history.quantile(.75))
                 regime = "high" if prior_vol > q else "low"
             row = {
-                "ticker": ticker, "date": days.iloc[i], "feature_date": days.iloc[i],
+                "ticker": ticker, "date": days.iloc[i], "feature_date": days.iloc[i], "current_close": float(market.close.iloc[i]),
                 "market_open": opens.iloc[i], "market_close": closes.iloc[i],
                 "issued_at": closes.iloc[i] + pd.Timedelta(minutes=15), "input_cutoff": closes.iloc[i],
                 "target_kind": target, "target_date": next_date, "target_open_at": next_open_at, "target_close_at": next_close_at,
