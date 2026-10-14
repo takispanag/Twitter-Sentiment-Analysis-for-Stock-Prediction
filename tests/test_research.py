@@ -146,3 +146,20 @@ def test_neural_inner_split_reserves_distinct_chronological_validation_tail():
     assert _training_validation_split(2) == 1
     with pytest.raises(ValueError, match="two windows"):
         _training_validation_split(1)
+
+
+def test_lstm_saved_normalization_uses_only_inner_optimization_rows(tmp_path):
+    pytest.importorskip("torch")
+    from sentiment_stock.research import _lstm_predict, LOOKBACK
+    train = np.arange(20, dtype=float).reshape(-1, 1)
+    train[17:] = 1_000_000.0  # These rows land only in the reserved inner-validation tail.
+    checkpoint = tmp_path / "lstm.pt"
+    predictions = _lstm_predict(
+        train, np.linspace(-.1, .1, len(train)), np.arange(5, dtype=float).reshape(-1, 1),
+        seed=13, artifact_path=checkpoint, feature_columns=["x"],
+    )
+    saved = __import__("torch").load(checkpoint, map_location="cpu", weights_only=True)
+    # 16 optimization windows end at rows 4..16; rows 17..19 are validation-only.
+    assert saved["input_mean"].item() == pytest.approx(np.arange(17).mean())
+    assert saved["input_medians"].item() == pytest.approx(np.median(np.arange(17)))
+    assert len(predictions) == 1 and np.isfinite(predictions).all()

@@ -60,14 +60,23 @@ def _lstm_predict(train_x, train_y, test_x, seed: int, context_x=None, artifact_
     from torch import nn
     torch.manual_seed(seed)
     np.random.seed(seed)
-    medians = np.nanmedian(train_x, axis=0)
+    train_x = np.asarray(train_x, dtype=float)
+    test_x = np.asarray(test_x, dtype=float)
+    context_x = np.asarray(context_x, dtype=float) if context_x is not None else np.empty((0, train_x.shape[1]))
+    train_offsets = np.arange(LOOKBACK - 1, len(train_x))
+    split = _training_validation_split(len(train_offsets))
+    # Each window ends at its offset. Fit all input transforms only through the
+    # final endpoint used by optimization; inner-validation rows are transform-only.
+    fit_end = int(train_offsets[split - 1]) + 1
+    fit_rows = train_x[:fit_end]
+    medians = np.nanmedian(fit_rows, axis=0)
     medians[~np.isfinite(medians)] = 0
+    fit_rows = np.where(np.isfinite(fit_rows), fit_rows, medians)
+    mean, std = fit_rows.mean(0), fit_rows.std(0)
+    std[std == 0] = 1
     train_x = np.where(np.isfinite(train_x), train_x, medians)
     test_x = np.where(np.isfinite(test_x), test_x, medians)
-    context_x = np.asarray(context_x, dtype=float) if context_x is not None else np.empty((0, train_x.shape[1]))
     context_x = np.where(np.isfinite(context_x), context_x, medians)
-    mean, std = train_x.mean(0), train_x.std(0)
-    std[std == 0] = 1
     train_x = (train_x - mean) / std
     context_test_x = (np.concatenate([context_x, test_x]) - mean) / std
     train_windows, train_offsets = sequence_windows(train_x, LOOKBACK)
@@ -86,7 +95,6 @@ def _lstm_predict(train_x, train_y, test_x, seed: int, context_x=None, artifact_
             return self.head(out[:, -1, :]).squeeze(-1)
     model = Regressor()
     optimizer, loss_fn = torch.optim.Adam(model.parameters(), lr=.01), nn.L1Loss()
-    split = _training_validation_split(len(xt))
     best, patience, best_state = float("inf"), 0, None
     for _ in range(20):
         model.train()
