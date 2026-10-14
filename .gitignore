@@ -11,3 +11,10 @@ __pycache__/
 *.sqlite
 *.sqlite3
 .env
+.env.*
+*.token
+*.sqlite-wal
+*.sqlite-shm
+*.egg-info/
+.token
+token

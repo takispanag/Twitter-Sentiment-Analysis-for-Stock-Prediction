@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel>=0.41,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentiment-stock"
+version = "0.1.0"
+description = "Local-first stock sentiment research and data tools"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.24,<3",
+  "pandas>=2.0,<3",
+  "scikit-learn>=1.3,<2",
+  "plotly>=5.18,<7",
+  "streamlit>=1.30,<2",
+  "vaderSentiment>=3.3,<4",
+  "pandas-market-calendars>=4.3,<6",
+  "yfinance>=0.2.36,<1",
+]
+
+[project.optional-dependencies]
+models = ["xgboost>=2,<4"]
+nlp = ["torch>=2,<3", "transformers>=4.38,<6"]
+test = ["pytest>=8,<9"]
+legacy = ["tensorflow>=2.15,<3"]
+
+[project.scripts]
+sentiment-stock = "sentiment_stock.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sentiment_stock*"]
