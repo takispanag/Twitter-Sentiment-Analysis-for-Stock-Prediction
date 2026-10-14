@@ -15,7 +15,11 @@ from .research import run_research, forecast_latest
 from .trading import backtest, cost_sensitivity
 from .paper import record_forecasts, settle_forecasts, read_paper
 from .benchmark import (load_tfns, load_fintweet_2025, run_benchmark, prepare_annotations,
-                        run_stock_movement_text_track, import_equinxx_tweets)
+                        run_stock_movement_text_track, import_equinxx_tweets,
+                        import_financial_tweets, run_financial_corpus_benchmark,
+                        finetune_finbert_source_holdout,
+                        merge_benchmark_runs,
+                        DEFAULT_FINANCIAL_HOLDOUT_SOURCE)
 import hashlib
 import numpy as np
 
@@ -68,6 +72,27 @@ def _parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--models", default="majority,vader,tfidf_logreg", help="comma-separated: majority,vader,tfidf_logreg,finbert,twitter_roberta")
     benchmark.add_argument("--seed", type=int, default=42); benchmark.add_argument("--validation-fraction", type=float, default=0.2)
     benchmark.add_argument("--batch-size", type=int, default=16); benchmark.add_argument("--cache-dir", type=Path, default=Path("artifacts/sentiment-benchmark/cache"))
+    financial_import = commands.add_parser("import-finance-corpus", help="import a local finance-text Parquet/CSV and write source audit metadata")
+    financial_import.add_argument("--input", type=Path, required=True); financial_import.add_argument("--output", type=Path, required=True)
+    financial_benchmark = commands.add_parser("benchmark-finance-corpus", help="evaluate sentiment transfer on a source-held-out corpus split")
+    financial_benchmark.add_argument("--input", type=Path, required=True, help="labeled_posts.csv from import-finance-corpus")
+    financial_benchmark.add_argument("--audit", type=Path, help="source_audit.json from import-finance-corpus")
+    financial_benchmark.add_argument("--holdout-source", default=DEFAULT_FINANCIAL_HOLDOUT_SOURCE)
+    financial_benchmark.add_argument("--output", type=Path, required=True)
+    financial_benchmark.add_argument("--models", default="majority,vader,tfidf_logreg,finbert,twitter_roberta")
+    financial_benchmark.add_argument("--seed", type=int, default=42); financial_benchmark.add_argument("--batch-size", type=int, default=16)
+    financial_benchmark.add_argument("--cache-dir", type=Path, default=Path("artifacts/sentiment-benchmark/cache"))
+    finetune = commands.add_parser("finetune-finance-sentiment", help="fine-tune FinBERT with source-group validation and held-out testing")
+    finetune.add_argument("--input", type=Path, required=True, help="labeled_posts.csv from import-finance-corpus")
+    finetune.add_argument("--audit", type=Path, help="source_audit.json from import-finance-corpus")
+    finetune.add_argument("--holdout-source", default=DEFAULT_FINANCIAL_HOLDOUT_SOURCE)
+    finetune.add_argument("--output", type=Path, required=True); finetune.add_argument("--model", default="ProsusAI/finbert")
+    finetune.add_argument("--epochs", type=int, default=2); finetune.add_argument("--batch-size", type=int, default=8)
+    finetune.add_argument("--max-length", type=int, default=128); finetune.add_argument("--learning-rate", type=float, default=2e-5)
+    finetune.add_argument("--seed", type=int, default=42)
+    finetune.add_argument("--max-train-rows", type=int); finetune.add_argument("--max-validation-rows", type=int); finetune.add_argument("--max-test-rows", type=int)
+    merge_benchmarks = commands.add_parser("merge-benchmarks", help="merge classifier runs only after verifying identical evaluation example IDs")
+    merge_benchmarks.add_argument("--inputs", nargs="+", type=Path, required=True); merge_benchmarks.add_argument("--output", type=Path, required=True)
     annotations = commands.add_parser("prepare-sentiment-annotations", help="make a blinded two-annotator finance-direction pilot batch")
     annotations.add_argument("--posts", type=Path, required=True); annotations.add_argument("--output", type=Path, required=True)
     annotations.add_argument("--sample-size", type=int, default=500); annotations.add_argument("--seed", type=int, default=42)
@@ -189,6 +214,35 @@ def main(argv: list[str] | None = None) -> int:
             result = run_benchmark(labelled, args.output, models=[model.strip() for model in args.models.split(",") if model.strip()],
                 seed=args.seed, validation_fraction=args.validation_fraction, batch_size=args.batch_size,
                 cache_dir=args.cache_dir, dataset_metadata=source_metadata, input_path=args.input if args.input else None)
+        elif args.command == "import-finance-corpus":
+            result = import_financial_tweets(args.input, args.output)
+        elif args.command == "benchmark-finance-corpus":
+            labelled = pd.read_csv(args.input)
+            source_metadata = {}
+            if args.audit:
+                try:
+                    source_metadata = json.loads(args.audit.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise ValueError(f"could not read source audit metadata: {exc}") from exc
+            result = run_financial_corpus_benchmark(labelled, args.output, holdout_source=args.holdout_source,
+                models=[model.strip() for model in args.models.split(",") if model.strip()], seed=args.seed,
+                batch_size=args.batch_size, cache_dir=args.cache_dir, dataset_metadata=source_metadata,
+                input_path=args.input)
+        elif args.command == "finetune-finance-sentiment":
+            labelled = pd.read_csv(args.input)
+            source_metadata = {}
+            if args.audit:
+                try:
+                    source_metadata = json.loads(args.audit.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise ValueError(f"could not read source audit metadata: {exc}") from exc
+            result = finetune_finbert_source_holdout(labelled, args.output, holdout_source=args.holdout_source,
+                model_id=args.model, epochs=args.epochs, batch_size=args.batch_size, max_length=args.max_length,
+                learning_rate=args.learning_rate, seed=args.seed, max_train_rows=args.max_train_rows,
+                max_validation_rows=args.max_validation_rows, max_test_rows=args.max_test_rows,
+                dataset_metadata=source_metadata, input_path=args.input)
+        elif args.command == "merge-benchmarks":
+            result = merge_benchmark_runs(args.inputs, args.output)
         elif args.command == "prepare-sentiment-annotations":
             posts = pd.read_csv(args.posts)
             result = prepare_annotations(posts, args.output, sample_size=args.sample_size, seed=args.seed, stratum_column=args.stratify_column)
@@ -210,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, RuntimeError, OSError, ImportError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 1
     summary = [f"output={result['output']}"]
-    for field in ("price_rows", "post_rows", "forecast_rows", "metric_rows", "prediction_rows", "annotation_rows", "audit_issue_count", "trade_rows", "recorded_rows", "settled_rows", "pending_rows"):
+    for field in ("price_rows", "post_rows", "forecast_rows", "metric_rows", "prediction_rows", "annotation_rows", "audit_issue_count", "trade_rows", "recorded_rows", "settled_rows", "pending_rows", "input_rows", "usable_rows", "source_count", "macro_f1", "best_epoch", "device", "models"):
         if field in result: summary.append(f"{field}={result[field]}")
     print(" ".join(summary))
     return 0

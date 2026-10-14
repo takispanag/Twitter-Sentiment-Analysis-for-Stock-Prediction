@@ -121,3 +121,30 @@ def test_research_forecast_chart_filter_selects_one_feature_set(saved_run):
 
     assert not app.exception
     assert any("Forecast chart · feature set: price_attention" in item.value for item in app.caption)
+
+
+def test_dashboard_renders_source_audit_and_calibration_views(tmp_path, monkeypatch):
+    artifacts = tmp_path / "artifacts"
+    benchmark = artifacts / "sentiment-benchmark" / "run1"
+    benchmark.mkdir(parents=True)
+    (benchmark / "metadata.json").write_text(__import__("json").dumps({
+        "dataset_id": "test-corpus", "annotation_provenance": "published", "evaluation_protocol": "source_group_holdout_v1",
+        "seed": 42, "evaluation_warning": "Held-out source test.",
+        "dataset_audit": {"limitation": "No ticker or timestamp columns.", "class_support": {"bearish": 4, "neutral": 3, "bullish": 5},
+                          "sources": {"source-a": {"rows": 12}, "source-b": {"rows": 4}}},
+    }), encoding="utf-8")
+    pd.DataFrame([{"model_id": "tfidf_logreg", "split": "test", "macro_f1": .7, "multiclass_brier": .4, "top_label_ece": .1}]).to_csv(benchmark / "metrics.csv", index=False)
+    pd.DataFrame([{"model_id": "tfidf_logreg", "split": "test", "label": label, "precision": .7, "recall": .7, "f1": .7, "support": 2}
+                  for label in ("bearish", "neutral", "bullish")]).to_csv(benchmark / "per_class.csv", index=False)
+    pd.DataFrame([{"model_id": "tfidf_logreg", "split": "test", "gold_label": gold, "predicted_label": predicted, "count": 1}
+                  for gold in ("bearish", "neutral", "bullish") for predicted in ("bearish", "neutral", "bullish")]).to_csv(benchmark / "confusion_matrix.csv", index=False)
+    pd.DataFrame([{"example_id": "one", "split": "test", "gold_label": "bearish", "predicted_label": "bearish", "model_id": "tfidf_logreg"}]).to_csv(benchmark / "predictions.csv", index=False)
+    monkeypatch.setenv("SENTIMENT_STOCK_ARTIFACTS", str(artifacts))
+
+    app = AppTest.from_file(APP_PATH).run()
+    app.selectbox(key="page").set_value("Text benchmark").run()
+
+    assert not app.exception
+    assert app.selectbox(key="benchmark_run").value == "run1"
+    assert any("No ticker or timestamp" in item.value for item in app.warning)
+    assert any("Probability quality" in item.value for item in app.markdown)

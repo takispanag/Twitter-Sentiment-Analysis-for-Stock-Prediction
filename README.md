@@ -115,6 +115,8 @@ python -m sentiment_stock benchmark-sentiment --input local-labels.csv --text-co
 
 The benchmark compares majority and fixed VADER baselines with train-only TF-IDF/logistic regression. Optional frozen FinBERT and Twitter RoBERTa inference is opt-in, CPU batched, and cached. First use downloads model files; review the model revisions, source licenses, and corpus period. Saved predictions are row-aligned across each model's common evaluation rows and include per-class scores and confusion counts.
 
+For the mixed-source 38k corpus, use the source-held-out and fine-tuning commands below, then merge runs only if they contain exactly the same test example IDs. The recorded experiment found frozen FinBERT (macro F1 0.663) stronger than one-epoch full-source fine-tuning (0.548) on the TFNS source holdout. See [the measured benchmark report](docs/results/finance-sentiment-benchmark.md); these scores are label-transfer metrics and do not establish stock-return predictiveness.
+
 The accessible finance-text datasets contain published or user-supplied labels, not necessarily qualified expert annotations. Treat scores as agreement with those labels. To prepare a blinded two-annotator finance-direction pilot, use:
 
 ```bash
@@ -122,6 +124,17 @@ python -m sentiment_stock prepare-sentiment-annotations --posts data/posts.csv -
 ```
 
 An annotation file is not an expert gold set until annotator qualifications, independent agreement, and adjudication have been documented. The separate FinTweet 2025 BUY/HOLD/SELL track targets price movement labels; it is not a human sentiment benchmark and its predictive claims require point-in-time text and split leakage review.
+
+For a stronger source-transfer benchmark, use the 38k-row finance-text compilation after downloading its local Parquet from [Hugging Face](https://huggingface.co/datasets/TimKoornstra/financial-tweets-sentiment). The importer writes a source/class audit and applies the dataset card's explicit `0=neutral, 1=bullish, 2=bearish` mapping. It deduplicates normalized text and holds the TFNS source group out of supervised training. The data has no ticker or timestamp columns, so it cannot establish stock prediction. The card declares MIT while referring users to original constituent terms; review those terms before redistribution.
+
+```bash
+python -m sentiment_stock import-finance-corpus --input data/external/financial-tweets-sentiment.parquet --output data/external/financial-tweets-audited
+python -m sentiment_stock benchmark-finance-corpus --input data/external/financial-tweets-audited/labeled_posts.csv --audit data/external/financial-tweets-audited/source_audit.json --models majority,vader,tfidf_logreg --output artifacts/sentiment-benchmark/financial-source-test
+python -m sentiment_stock finetune-finance-sentiment --input data/external/financial-tweets-audited/labeled_posts.csv --audit data/external/financial-tweets-audited/source_audit.json --output artifacts/sentiment-benchmark/finbert-finetuned
+python -m sentiment_stock merge-benchmarks --inputs artifacts/sentiment-benchmark/financial-source-test artifacts/sentiment-benchmark/financial-transformers artifacts/sentiment-benchmark/finbert-finetuned --output artifacts/sentiment-benchmark/financial-comparison
+```
+
+FinBERT fine-tuning uses source-group validation, class-weighted loss, early stopping, and one final source-held-out test; run it with the `nlp` extra and a suitable GPU if available. ProsusAI/FinBERT weights are CC BY-NC-SA 4.0 with non-commercial restrictions. The FinTwitBERT sentiment checkpoint is excluded from this holdout benchmark because its model card reports training on this same 38k compilation. The dashboard charts source coverage, class balance, per-class F1, confusion matrices, Brier score, and expected calibration error.
 
 ## Forward forecasts and paper ledger
 

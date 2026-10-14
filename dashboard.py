@@ -149,6 +149,11 @@ def _render_sentiment(data: dict, forecasts: pd.DataFrame) -> None:
 def _render_benchmark(path: Path) -> None:
     st.subheader("Text classification benchmark")
     st.caption("Classification is separate from return forecasting. Dataset labels are published or locally supplied labels; they are not expert gold sentiment.")
+    if path.is_dir() and not all((path / name).is_file() for name in BENCHMARK_FILES):
+        candidates = sorted(folder for folder in path.iterdir() if folder.is_dir() and all((folder / name).is_file() for name in BENCHMARK_FILES))
+        if candidates:
+            selected_name = st.selectbox("Saved benchmark run", [folder.name for folder in candidates], key="benchmark_run")
+            path = path / selected_name
     try:
         missing = [name for name in BENCHMARK_FILES if not (path / name).is_file()]
         if missing:
@@ -165,17 +170,62 @@ def _render_benchmark(path: Path) -> None:
         st.caption("Run `sentiment-stock benchmark-sentiment --help` to prepare a local or public-label benchmark.")
         return
     st.caption(f"Source: {metadata.get('dataset_id', metadata.get('dataset', 'local dataset'))} · label provenance: {metadata.get('annotation_provenance', 'not verified')}")
+    st.caption(f"Evaluation protocol: {metadata.get('evaluation_protocol', 'unspecified')} · seed: {metadata.get('seed', 'n/a')}")
+    if metadata.get("evaluation_warning"):
+        st.info(metadata["evaluation_warning"])
+    dataset_audit = metadata.get("dataset_audit", {})
+    if not isinstance(dataset_audit, dict):
+        dataset_audit = {}
+    if dataset_audit.get("limitation"):
+        st.warning(dataset_audit["limitation"])
+    if dataset_audit.get("sources"):
+        source_rows = [{"source": url, **details} for url, details in dataset_audit["sources"].items()]
+        source_frame = pd.DataFrame(source_rows).sort_values("rows", ascending=False)
+        st.markdown("#### Corpus provenance and label balance")
+        source_chart = px.bar(source_frame, x="rows", y="source", orientation="h", color_discrete_sequence=["#157a78"],
+                              title="Rows by constituent source", labels={"rows": "Rows", "source": "Dataset source"})
+        source_chart.update_layout(template="plotly_white", yaxis={"categoryorder": "total ascending"}, margin=dict(l=12, r=16, t=48, b=12))
+        st.plotly_chart(source_chart, **_stretch())
+        distribution = pd.DataFrame([{"label": label, "rows": count} for label, count in dataset_audit.get("class_support", {}).items()])
+        if not distribution.empty:
+            class_chart = px.bar(distribution, x="label", y="rows", color="label", title="Published label distribution",
+                                 labels={"label": "Canonical sentiment label", "rows": "Rows"},
+                                 color_discrete_map={"bearish": "#c68731", "neutral": "#708090", "bullish": "#157a78"})
+            class_chart.update_layout(template="plotly_white", showlegend=False, margin=dict(l=12, r=16, t=48, b=12))
+            st.plotly_chart(class_chart, **_stretch())
     if metadata.get("expert_label_status"):
         st.info(f"Expert-label status: {metadata['expert_label_status']}")
     st.dataframe(metrics, **_stretch(), hide_index=True)
-    if {"model", "macro_f1"}.issubset(metrics.columns):
-        chart = px.bar(metrics, x="model", y="macro_f1", title="Macro F1 on the saved evaluation split", labels={"model": "Model", "macro_f1": "Macro F1"}, color_discrete_sequence=["#157a78"])
+    model_column = "model_id" if "model_id" in metrics else "model"
+    if {model_column, "macro_f1"}.issubset(metrics.columns):
+        chart = px.bar(metrics, x=model_column, y="macro_f1", color="split" if "split" in metrics else None,
+                       title="Macro F1 on the saved evaluation split", labels={model_column: "Model", "macro_f1": "Macro F1"},
+                       color_discrete_sequence=["#157a78", "#c68731"])
         chart.update_layout(template="plotly_white", yaxis_range=[0, 1], margin=dict(l=16, r=16, t=55, b=16))
         st.plotly_chart(chart, **_stretch())
+    if {model_column, "top_label_ece", "multiclass_brier"}.issubset(metrics.columns):
+        st.markdown("#### Probability quality")
+        st.caption("Lower Brier score and expected calibration error indicate better calibrated probabilities. Hard-label baselines are represented as one-hot probabilities and are naturally overconfident.")
+        st.dataframe(metrics[[model_column, "split", "multiclass_brier", "top_label_ece"]], **_stretch(), hide_index=True)
     st.markdown("#### Per-class scores")
     st.dataframe(per_class, **_stretch(), hide_index=True)
+    if {"model_id", "label", "f1"}.issubset(per_class.columns):
+        class_chart = px.bar(per_class, x="label", y="f1", color="model_id", barmode="group",
+                             title="Per-class F1 on the same held-out examples", labels={"label": "Sentiment", "f1": "F1", "model_id": "Model"},
+                             color_discrete_sequence=["#157a78", "#c68731", "#739b95", "#8c627a"])
+        class_chart.update_layout(template="plotly_white", yaxis_range=[0, 1], margin=dict(l=16, r=16, t=55, b=16))
+        st.plotly_chart(class_chart, **_stretch())
     st.markdown("#### Confusion counts")
     st.dataframe(confusion, **_stretch(), hide_index=True)
+    if {"model_id", "gold_label", "predicted_label", "count"}.issubset(confusion.columns):
+        models = sorted(confusion.model_id.dropna().astype(str).unique())
+        if models:
+            selected = st.selectbox("Confusion matrix model", models, key="benchmark_confusion_model")
+            matrix = confusion.loc[confusion.model_id.astype(str).eq(selected)].pivot(index="gold_label", columns="predicted_label", values="count").reindex(index=["bearish", "neutral", "bullish"], columns=["bearish", "neutral", "bullish"], fill_value=0)
+            heatmap = px.imshow(matrix, text_auto=True, aspect="auto", color_continuous_scale="Teal",
+                                title=f"Confusion matrix · {selected}", labels={"x": "Predicted", "y": "Published label", "color": "Rows"})
+            heatmap.update_layout(template="plotly_white", margin=dict(l=16, r=16, t=55, b=16))
+            st.plotly_chart(heatmap, **_stretch())
     st.markdown("#### Row-aligned predictions")
     st.dataframe(predictions, **_stretch(), hide_index=True)
     st.download_button("Download benchmark predictions", predictions.to_csv(index=False).encode("utf-8"), "predictions.csv", "text/csv")

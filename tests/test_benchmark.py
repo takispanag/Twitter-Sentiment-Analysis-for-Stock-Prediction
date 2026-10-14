@@ -14,6 +14,12 @@ from sentiment_stock.benchmark import (
     run_stock_movement_text_track,
     import_equinxx_tweets,
     summarize_annotations,
+    import_financial_tweets,
+    source_holdout_split,
+    run_financial_corpus_benchmark,
+    finetune_finbert_source_holdout,
+    compute_probability_metrics,
+    merge_benchmark_runs,
 )
 
 
@@ -93,6 +99,14 @@ def test_hand_computed_metrics_use_macro_f1_and_balanced_accuracy():
     assert result["balanced_accuracy"] == pytest.approx(0.5)
     assert result["macro_f1"] == pytest.approx((1 / 2 + 2 / 3 + 0) / 3)
     assert result["confusion_matrix"] == [[1, 1, 0], [0, 1, 0], [1, 0, 0]]
+
+
+def test_probability_metrics_compute_multiclass_brier_and_top_label_calibration():
+    result = compute_probability_metrics(["bearish", "neutral"], [[0.8, 0.1, 0.1], [0.2, 0.5, 0.3]], bins=2)
+    assert result["multiclass_brier"] == pytest.approx((0.06 + 0.38) / 2)
+    assert result["top_label_ece"] == pytest.approx(0.35)
+    with pytest.raises(ValueError, match="sum to one"):
+        compute_probability_metrics(["bearish"], [[0.5, 0.5, 0.5]])
 
 
 def test_cache_key_tracks_text_revision_tokenizer_and_preprocessing():
@@ -278,3 +292,112 @@ def test_equinxx_import_metadata_reflects_missing_optional_price_file(tmp_path):
 
     assert metadata["source_files"] == ["stock_tweets.csv"]
     assert "price file was not provided" in metadata["limitation"]
+
+
+def test_finance_corpus_import_audits_sources_classes_and_missing_prediction_fields(tmp_path):
+    source = tmp_path / "financial.csv"
+    pd.DataFrame({
+        "tweet": ["A positive outlook", "A neutral note", "A negative outlook", "  "],
+        "sentiment": [1, 0, 2, 1],
+        "url": ["source-a", "source-a", "source-b", "source-b"],
+    }).to_csv(source, index=False)
+
+    result = import_financial_tweets(source, tmp_path / "imported")
+    posts = pd.read_csv(tmp_path / "imported" / "labeled_posts.csv")
+    audit = __import__("json").loads((tmp_path / "imported" / "source_audit.json").read_text(encoding="utf-8"))
+
+    assert result["usable_rows"] == 3
+    assert len(posts) == 3
+    assert set(posts.label) == {"bearish", "neutral", "bullish"}
+    assert posts.set_index("text").label.to_dict() == {"A positive outlook": "bullish", "A neutral note": "neutral", "A negative outlook": "bearish"}
+    assert audit["input_rows"] == 4 and audit["blank_rows"] == 1
+    assert audit["source_count"] == 2
+    assert audit["has_ticker"] is False and audit["has_timestamp"] is False
+    assert audit["label_status"] == "published_labels"
+    assert "constituent source terms" in audit["license_caveat"]
+
+
+def test_source_holdout_prevents_duplicate_text_leakage_and_holds_out_whole_sources():
+    rows = []
+    for source, texts in {
+        "tfns": ["shared article", "test bearish", "test neutral", "test bullish"],
+        "kaggle-a": ["SHARED   ARTICLE", "train a", "train b", "train c", "train d", "train e"],
+        "github-b": ["valid a", "valid b", "valid c", "valid d"],
+    }.items():
+        for index, text in enumerate(texts):
+            rows.append({"text": text, "label": ["bearish", "neutral", "bullish"][index % 3], "source_url": source})
+
+    train, validation, test, audit = source_holdout_split(pd.DataFrame(rows), holdout_source="tfns")
+
+    assert set(test.source_url) == {"tfns"}
+    assert set(validation.source_url) == {"kaggle-a"}
+    assert set(train.source_url) == {"github-b"}
+    normalized = lambda value: " ".join(value.casefold().split())
+    assert {normalized(text) for text in train.text}.isdisjoint({normalized(text) for text in test.text})
+    assert audit["heldout_text_overlap_rows_removed_from_training"] == 1
+    assert audit["heldout_source"] == "tfns"
+
+
+def test_source_holdout_fails_for_missing_source_or_one_class_evaluation():
+    frame = pd.DataFrame({"text": ["one", "two", "three"], "label": ["bearish", "bullish", "neutral"],
+                          "source_url": ["a", "b", "b"]})
+    with pytest.raises(ValueError, match="held-out source"):
+        source_holdout_split(frame, holdout_source="missing")
+
+    frame.loc[2, "source_url"] = "a"
+    with pytest.raises(ValueError, match="at least two classes"):
+        source_holdout_split(frame, holdout_source="b")
+
+
+def test_source_heldout_benchmark_scores_named_test_rows_and_records_source_protocol(tmp_path):
+    rows = []
+    for source, count in (("test-source", 12), ("validation-source", 12), ("train-source", 18)):
+        for index in range(count):
+            label = ["bearish", "neutral", "bullish"][index % 3]
+            text = {"bearish": "losses pressure shares lower", "neutral": "company files routine report",
+                    "bullish": "profits growth shares higher"}[label] + f" {source} {index}"
+            rows.append({"text": text, "label": label, "source_url": source})
+    frame = pd.DataFrame(rows)
+
+    result = run_financial_corpus_benchmark(frame, tmp_path, holdout_source="test-source", models=["majority", "tfidf_logreg"])
+    metrics = pd.read_csv(tmp_path / "metrics.csv")
+    predictions = pd.read_csv(tmp_path / "predictions.csv")
+    metadata = __import__("json").loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+
+    assert result["example_count"] == 12
+    assert set(metrics.split) == {"test"}
+    assert set(predictions.split) == {"test"}
+    assert metadata["evaluation_protocol"] == "source_group_holdout_v1"
+    assert metadata["source_holdout"]["heldout_source"] == "test-source"
+
+
+def test_finbert_finetune_rejects_unsafe_or_unreasonable_training_parameters(tmp_path):
+    with pytest.raises(ValueError, match="epochs must be 1-10"):
+        finetune_finbert_source_holdout(pd.DataFrame(), tmp_path, epochs=0)
+
+
+def test_merge_benchmarks_requires_identical_examples_and_keeps_model_rows_aligned(tmp_path):
+    frame = labelled_frame()
+    run_benchmark(frame, tmp_path / "run-a", models=["majority"], seed=17, validation_fraction=1 / 3)
+    run_benchmark(frame, tmp_path / "run-b", models=["vader"], seed=17, validation_fraction=1 / 3)
+
+    result = merge_benchmark_runs([tmp_path / "run-a", tmp_path / "run-b"], tmp_path / "merged")
+
+    predictions = pd.read_csv(tmp_path / "merged" / "predictions.csv")
+    assert result["models"] == 2
+    assert set(predictions.model_id) == {"majority", "vader"}
+    assert predictions.groupby("example_id").model_id.nunique().eq(2).all()
+
+    run_b_predictions = pd.read_csv(tmp_path / "run-b" / "predictions.csv")
+    run_b_predictions.loc[0, "example_id"] = "different-evaluation-row"
+    run_b_predictions.to_csv(tmp_path / "run-b" / "predictions.csv", index=False)
+    with pytest.raises(ValueError, match="identical held-out example IDs"):
+        merge_benchmark_runs([tmp_path / "run-a", tmp_path / "run-b"], tmp_path / "invalid-merge")
+
+    run_b_predictions = pd.read_csv(tmp_path / "run-b" / "predictions.csv")
+    original = pd.read_csv(tmp_path / "run-a" / "predictions.csv")
+    run_b_predictions["example_id"] = original.example_id.to_numpy()
+    run_b_predictions.loc[0, "gold_label"] = "bearish" if run_b_predictions.loc[0, "gold_label"] != "bearish" else "neutral"
+    run_b_predictions.to_csv(tmp_path / "run-b" / "predictions.csv", index=False)
+    with pytest.raises(ValueError, match="identical held-out example IDs, labels, and splits"):
+        merge_benchmark_runs([tmp_path / "run-a", tmp_path / "run-b"], tmp_path / "invalid-label-merge")

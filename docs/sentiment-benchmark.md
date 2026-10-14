@@ -65,3 +65,29 @@ sentiment-stock import-equinxx-tweets --tweets stock_tweets.csv --prices stock_y
 The importer preserves text and timestamps and normalizes tickers/prices. Kaggle terms should be checked for the user’s exact download before use; do not redistribute the source corpus. For this corpus, VADER or a frozen encoder produces model scores, not truth labels.
 
 These newer datasets do not replace the recovered historical comparison. Return forecasting remains a separate task with its own causal features, target definitions, and forecast artifacts.
+
+## 38k finance-text compilation: source transfer and fine-tuning
+
+The Hugging Face compilation [TimKoornstra/financial-tweets-sentiment](https://huggingface.co/datasets/TimKoornstra/financial-tweets-sentiment) has 38,091 text/label/source rows from nine constituent datasets. Its card declares `0=neutral`, `1=bullish`, and `2=bearish`; the importer applies this mapping explicitly because it differs from the TFNS source downloader's numeric mapping. The card lists an MIT license while saying it follows original-source terms, so verify constituent rights before redistribution. The compilation has no ticker or timestamp, and some sources may contain finance headlines or other text rather than tweets. Treat labels as published dataset labels, not expert gold.
+
+Import a local Parquet or CSV copy and inspect aggregate source/class counts without emitting source text:
+
+```powershell
+sentiment-stock import-finance-corpus --input data/external/financial-tweets-sentiment.parquet --output data/external/financial-tweets-audited
+```
+
+Compare majority, VADER, word/character TF-IDF, and optionally frozen FinBERT/Twitter-RoBERTa using TFNS as the held-out constituent source. All repeated normalized text is removed across groups; repeated examples from the held-out source are kept there, and the other seven source groups are split by source into train and validation. These frozen models may have unknown overlap from pretraining, which is recorded as a caveat.
+
+```powershell
+sentiment-stock benchmark-finance-corpus --input data/external/financial-tweets-audited/labeled_posts.csv --audit data/external/financial-tweets-audited/source_audit.json --models majority,vader,tfidf_logreg --output artifacts/sentiment-benchmark/financial-source-test
+sentiment-stock benchmark-finance-corpus --input data/external/financial-tweets-audited/labeled_posts.csv --audit data/external/financial-tweets-audited/source_audit.json --models finbert,twitter_roberta --batch-size 16 --output artifacts/sentiment-benchmark/financial-transformers
+sentiment-stock merge-benchmarks --inputs artifacts/sentiment-benchmark/financial-source-test artifacts/sentiment-benchmark/financial-transformers --output artifacts/sentiment-benchmark/financial-comparison
+```
+
+The trainable path fine-tunes ProsusAI FinBERT, retaining its documented positive/negative/neutral head order and mapping to bullish/bearish/neutral. It uses source-group training and validation, class-weighted loss, gradient clipping, validation-loss early stopping, and one final evaluation against the untouched source holdout. Use a GPU for a full run when possible; optional row caps create an explicitly sampled pilot, not a full-corpus result:
+
+```powershell
+sentiment-stock finetune-finance-sentiment --input data/external/financial-tweets-audited/labeled_posts.csv --audit data/external/financial-tweets-audited/source_audit.json --output artifacts/sentiment-benchmark/finbert-finetuned
+```
+
+Install the `nlp` extra first. The ProsusAI FinBERT weights are CC BY-NC-SA 4.0 and its model card restricts commercial use. The separate FinTwitBERT-sentiment model reports training on this exact 38,091-row compilation plus a synthetic corpus; it is excluded from fair holdout benchmarking because its training examples overlap our test source. Metrics include macro/weighted F1, balanced accuracy, per-class support, confusion counts, multiclass Brier score, and top-label expected calibration error. They describe label transfer only, not return forecasting.
