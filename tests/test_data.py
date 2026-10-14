@@ -1,7 +1,11 @@
 import pandas as pd
 import pytest
+import json
+import time
+import types
 
-from sentiment_stock.data import import_original, normalize_posts, normalize_prices
+import sentiment_stock.data as data_module
+from sentiment_stock.data import collect_x, fetch_prices, import_original, normalize_posts, normalize_prices
 
 
 def test_date_only_posts_are_available_after_the_utc_day():
@@ -18,8 +22,18 @@ def test_exported_date_only_posts_keep_their_availability_when_reloaded():
     assert reloaded.loc[0, "post_id"] == "1234567890123456789"
 
 
+def test_date_only_precision_cannot_be_overridden_by_timestamp_metadata():
+    with pytest.raises(ValueError, match="contradicts"):
+        normalize_posts(pd.DataFrame([{"post_id": 1, "ticker": "AAPL", "created_at": "2020-01-02", "time_precision": "timestamp", "text": "hello"}]))
+
+
 def test_observed_at_delays_intraday_post_availability():
     posts = normalize_posts(pd.DataFrame([{"post_id": 1, "ticker": "AAPL", "created_at": "2020-01-02T15:00:00Z", "available_at": "2020-01-02T16:00:00Z", "text": "hello"}]))
+    assert posts.loc[0, "available_at"] == pd.Timestamp("2020-01-02T16:00:00Z")
+
+
+def test_availability_uses_latest_observation_and_canonical_availability():
+    posts = normalize_posts(pd.DataFrame([{"post_id": 1, "ticker": "AAPL", "created_at": "2020-01-02T14:00:00Z", "observed_at": "2020-01-02T15:00:00Z", "available_at": "2020-01-02T16:00:00Z", "text": "hello"}]))
     assert posts.loc[0, "available_at"] == pd.Timestamp("2020-01-02T16:00:00Z")
 
 
@@ -57,6 +71,59 @@ def test_adjusted_close_scales_all_ohlc():
     row = {"ticker": "AAPL", "date": "2020-11-27", "Open": 200, "High": 220, "Low": 90, "Close": 100, "Adj Close": 50, "Volume": 1}
     prices = normalize_prices(pd.DataFrame([row]))
     assert prices.loc[0, ["open", "high", "low", "close"]].tolist() == [100, 110, 45, 50]
+
+
+def test_adjustment_overflow_is_rejected_after_scaling():
+    row = {"ticker": "AAPL", "date": "2020-11-27", "Open": 1e308, "High": 1e308, "Low": 1, "Close": 1, "Adj Close": 10, "Volume": 1}
+    with pytest.raises(ValueError, match="finite"):
+        normalize_prices(pd.DataFrame([row]))
+
+
+def test_yahoo_download_adapter_works_without_new_multilevel_argument(monkeypatch, tmp_path):
+    index = pd.DatetimeIndex(["2020-11-27"], name="Date")
+
+    def download(tickers, start, end, auto_adjust, actions, progress):
+        assert auto_adjust is True
+        return pd.DataFrame({"Open": [10], "High": [11], "Low": [9], "Close": [10], "Volume": [1]}, index=index)
+
+    monkeypatch.setitem(__import__("sys").modules, "yfinance", types.SimpleNamespace(download=download))
+    monkeypatch.setattr(data_module, "_atomic_csv", lambda frame, path: None)
+    prices = fetch_prices(["AAPL"], "2020-11-27", "2020-11-28", tmp_path)
+    assert prices.loc[0, "ticker"] == "AAPL"
+
+
+def test_x_posts_use_each_page_receipt_time(monkeypatch, tmp_path):
+    receipts = []
+    payloads = [
+        {"data": [{"id": "1", "created_at": "2026-10-14T12:00:00Z", "text": "first"}], "meta": {"next_token": "next"}},
+        {"data": [{"id": "2", "created_at": "2026-10-14T12:00:00Z", "text": "second"}], "meta": {}},
+    ]
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            time.sleep(0.05)
+            receipts.append(pd.Timestamp.now(tz="UTC"))
+            return json.dumps(self.payload).encode()
+
+    def fake_urlopen(request, timeout):
+        return Response(payloads.pop(0))
+
+    monkeypatch.setenv("X_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(data_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(data_module, "_atomic_csv", lambda frame, path: None)
+    now = pd.Timestamp.now(tz="UTC")
+    posts = collect_x("test", (now - pd.Timedelta(minutes=1)).isoformat(), (now + pd.Timedelta(minutes=5)).isoformat(), "AAPL", tmp_path, max_pages=2)
+    assert len(posts) == 2
+    assert all(posts.loc[i, "available_at"] >= receipts[i] for i in range(2))
 
 
 def test_original_join_preserves_numeric_ids_and_body(tmp_path):

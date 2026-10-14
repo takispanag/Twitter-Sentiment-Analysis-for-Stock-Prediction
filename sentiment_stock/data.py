@@ -165,9 +165,12 @@ def normalize_prices(frame: pd.DataFrame) -> pd.DataFrame:
         factor = adj / close
         if not np.isfinite(factor).all() or (factor <= 0).any():
             raise ValueError("adjustment factors must be finite and positive")
-        for column in ("open", "high", "low", "close"):
-            frame[column] = frame[column].to_numpy(dtype=float) * factor
+        with np.errstate(over="ignore", invalid="ignore"):
+            for column in ("open", "high", "low", "close"):
+                frame[column] = frame[column].to_numpy(dtype=float) * factor
     ohlc = frame[["open", "high", "low", "close"]].to_numpy(dtype=float)
+    if not np.isfinite(ohlc).all():
+        raise ValueError("adjusted OHLC values must be finite")
     if (ohlc <= 0).any():
         raise ValueError("OHLC values must be positive")
     if (frame["volume"] < 0).any():
@@ -212,8 +215,6 @@ def normalize_posts(frame: pd.DataFrame) -> pd.DataFrame:
         frame["source"] = "unknown"
     if "sentiment_score" not in frame:
         frame["sentiment_score"] = np.nan
-    if "observed_at" not in frame and "available_at" in frame:
-        frame["observed_at"] = frame["available_at"]
     if pd.api.types.is_numeric_dtype(frame["post_id"]):
         frame["post_id"] = frame["post_id"].map(_id_string).astype("string")
     else:
@@ -226,20 +227,23 @@ def normalize_posts(frame: pd.DataFrame) -> pd.DataFrame:
         invalid_precision = ~provided_precision.isin(["", "date", "timestamp"])
         if invalid_precision.any():
             raise ValueError("time_precision must be 'date' or 'timestamp'")
-        date_only = provided_precision.eq("date") | (provided_precision.eq("") & date_only)
+        if (date_only & provided_precision.eq("timestamp")).any():
+            raise ValueError("time_precision='timestamp' contradicts a date-only created_at")
+        date_only = date_only | provided_precision.eq("date")
     frame["created_at"] = created
     frame["time_precision"] = np.where(date_only, "date", "timestamp")
     available = pd.Series(created.array, index=frame.index)
     available.loc[date_only] = available.loc[date_only].dt.normalize() + pd.Timedelta("1D")
-    observed_column = "observed_at" if "observed_at" in frame else "available_at" if "available_at" in frame else None
-    if observed_column:
-        present_observation = frame[observed_column].notna()
-        if present_observation.any():
-            observed_values, _ = _utc_series(frame.loc[present_observation, observed_column], field=observed_column)
-            created_values = created.loc[present_observation]
-            if (observed_values < created_values).any():
-                raise ValueError("observed_at cannot precede created_at")
-            available.loc[present_observation] = pd.concat([available.loc[present_observation], observed_values], axis=1).max(axis=1)
+    for time_column in ("observed_at", "available_at"):
+        if time_column not in frame:
+            continue
+        present = frame[time_column].notna()
+        if not present.any():
+            continue
+        values, _ = _utc_series(frame.loc[present, time_column], field=time_column)
+        if (values < created.loc[present]).any():
+            raise ValueError(f"{time_column} cannot precede created_at")
+        available.loc[present] = pd.concat([available.loc[present], values], axis=1).max(axis=1)
     frame["available_at"] = available
     original_scores = frame["sentiment_score"]
     frame["sentiment_score"] = pd.to_numeric(original_scores, errors="coerce")
@@ -309,7 +313,7 @@ def fetch_prices(tickers: list[str], start: str, end: str, output: Path) -> pd.D
     except ImportError as exc:
         raise RuntimeError("Install the 'models' or core project dependencies to use fetch-prices (yfinance is required).") from exc
     tickers = [str(ticker).upper() for ticker in tickers]
-    raw = yf.download(tickers=tickers, start=start, end=end, auto_adjust=True, actions=False, progress=False, multi_level_index=False)
+    raw = yf.download(tickers=tickers, start=start, end=end, auto_adjust=True, actions=False, progress=False)
     if raw is None or raw.empty:
         raise ValueError("Yahoo Finance returned no rows; check ticker symbols, date bounds, and network access")
     if isinstance(raw.columns, pd.MultiIndex):
@@ -354,7 +358,7 @@ def collect_x(query: str, start: str, end: str, ticker: str, output: Path, archi
     if start_date or end_date or start_at >= end_at:
         raise ValueError("start and end must be timezone-aware timestamps with start before end")
     endpoint = "https://api.x.com/2/tweets/search/all" if archive else "https://api.x.com/2/tweets/search/recent"
-    rows, next_token, collected = [], None, pd.Timestamp.now(tz="UTC")
+    rows, next_token = [], None
     for _ in range(max_pages):
         params = {"query": query, "start_time": start_at.isoformat().replace("+00:00", "Z"), "end_time": end_at.isoformat().replace("+00:00", "Z"), "max_results": "100", "tweet.fields": "created_at,author_id"}
         if next_token:
@@ -362,7 +366,9 @@ def collect_x(query: str, start: str, end: str, ticker: str, output: Path, archi
         request = Request(f"{endpoint}?{urlencode(params)}", headers={"Authorization": f"Bearer {token}", "User-Agent": "sentiment-stock/0.1"})
         try:
             with urlopen(request, timeout=30) as response:
-                payload = json.loads(response.read())
+                body = response.read()
+                collected = pd.Timestamp.now(tz="UTC")
+                payload = json.loads(body)
         except (HTTPError, URLError, TimeoutError) as exc:
             raise RuntimeError(f"X API request failed ({getattr(exc, 'code', 'network error')}); check API access and date bounds") from exc
         users = {item["id"]: item.get("username") for item in payload.get("includes", {}).get("users", [])}

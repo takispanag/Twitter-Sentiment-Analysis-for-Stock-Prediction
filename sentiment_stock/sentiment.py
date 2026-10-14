@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from importlib.metadata import version as package_version
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,14 @@ def score_posts(posts: pd.DataFrame, encoder: str = "vader") -> tuple[pd.DataFra
         raise ValueError("encoder must be provided, vader, finbert, or twitter")
     result = posts.copy()
     model_ids = {"provided": "provided input labels", "vader": "vaderSentiment/vader_lexicon", "finbert": "ProsusAI/finbert", "twitter": "cardiffnlp/twitter-roberta-base-sentiment-latest"}
-    metadata = {"mode": mode, "model_id": model_ids[mode], "revision": None, "licensing_caveat": "Review the encoder and model-card license before redistribution; model scores reflect training corpora and may not represent current financial language."}
+    metadata = {
+        "mode": mode,
+        "model_id": model_ids[mode],
+        "revision": None,
+        "licensing_caveat": "Review the encoder and model-card license before redistribution.",
+        "training_corpus_period": "Unknown from package metadata; check the encoder/model card for its training and evaluation corpus dates.",
+        "temporal_caveat": "Historical scores from pretrained encoders are retrospective unless the exact encoder revision and its training-corpus cutoff are known to predate every scored observation.",
+    }
     if mode == "provided":
         if "sentiment_score" not in result:
             if "sentiment" in result:
@@ -36,6 +44,8 @@ def score_posts(posts: pd.DataFrame, encoder: str = "vader") -> tuple[pd.DataFra
         analyzer = SentimentIntensityAnalyzer()
         scores = [analyzer.polarity_scores(text)["compound"] for text in texts]
         metadata["package"] = "vaderSentiment"
+        metadata["package_version"] = package_version("vaderSentiment")
+        metadata["revision"] = metadata["package_version"]
     else:
         try:
             import transformers
@@ -64,6 +74,7 @@ def score_posts(posts: pd.DataFrame, encoder: str = "vader") -> tuple[pd.DataFra
             scores.append(positive - negative)
         result[["prob_positive", "prob_negative", "prob_neutral"]] = pd.DataFrame(probs, index=result.index, columns=["prob_positive", "prob_negative", "prob_neutral"])
         metadata["transformers_version"] = transformers.__version__
+        metadata["torch_version"] = package_version("torch")
         metadata["revision"] = getattr(classifier.model.config, "_commit_hash", None) or "model default revision at download time"
     result["sentiment_score"] = np.asarray(scores, dtype=float)
     if not np.isfinite(result["sentiment_score"].to_numpy()).all():
