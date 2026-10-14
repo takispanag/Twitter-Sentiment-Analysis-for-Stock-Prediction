@@ -3,3 +3,11 @@ config.py
 /venv/
 /.idea
 /data/
+/.venv/
+/.superpowers/
+__pycache__/
+/.pytest_cache/
+/artifacts/
+*.sqlite
+*.sqlite3
+.env
