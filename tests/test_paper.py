@@ -8,13 +8,13 @@ import pytest
 from sentiment_stock.paper import read_paper, record_forecasts, settle_forecasts
 
 
-NOW = pd.Timestamp("2026-01-05T14:00:00Z")
+NOW = pd.Timestamp("2026-01-05T21:30:00Z")
 
 
 def forward(ticker="AAA", target="2026-01-06", *, prediction=0.1, run="r1"):
     return {
         "run_id": run, "ticker": ticker, "feature_date": "2026-01-05",
-        "issued_at": "2026-01-05T13:00:00Z", "input_cutoff": "2026-01-05T12:45:00Z",
+        "issued_at": "2026-01-05T21:15:00Z", "input_cutoff": "2026-01-05T21:00:00Z",
         "training_cutoff": "2026-01-04T21:00:00Z", "target_date": target,
         "target_open_at": f"{target}T14:30:00Z", "target_close_at": f"{target}T21:00:00Z",
         "current_close": 100.0, "target_kind": "return", "model": "linear",
@@ -54,7 +54,7 @@ def test_record_validation_rejects_past_target_actuals_and_temporal_violations(t
            {**forward(), "actual": 0.1},
            {**forward(), "target_open": 100},
            {**forward(), "issued_at": "2026-01-05T14:01:00Z"},
-           {**forward(), "training_cutoff": "2026-01-05T13:00:00Z"},
+           {**forward(), "training_cutoff": "2026-01-05T21:15:00Z"},
            {**forward(), "input_cutoff": "2026-01-05T14:01:00Z"}]
     for row in bad:
         with pytest.raises(ValueError):
@@ -81,6 +81,33 @@ def test_record_rejects_feature_and_target_time_inconsistency(tmp_path):
         with pytest.raises(ValueError):
             record_forecasts(db, pd.DataFrame([row]), recorded_at=NOW)
     assert read_paper(db).empty
+
+
+def test_record_rejects_unfinished_feature_session(tmp_path):
+    db = tmp_path / "paper.sqlite"
+    row = {**forward(), "issued_at": "2026-01-05T13:00:00Z", "input_cutoff": "2026-01-05T12:45:00Z"}
+    with pytest.raises(ValueError, match="close"):
+        record_forecasts(db, pd.DataFrame([row]), recorded_at="2026-01-05T14:00:00Z")
+    assert read_paper(db).empty
+
+
+def test_record_rejects_wrong_market_hours_on_a_real_session(tmp_path):
+    db = tmp_path / "paper.sqlite"
+    row = {**forward(), "target_open_at": "2026-01-06T10:00:00Z", "target_close_at": "2026-01-06T20:00:00Z"}
+    with pytest.raises(ValueError, match="NYSE"):
+        record_forecasts(db, pd.DataFrame([row]), recorded_at=NOW)
+
+
+@pytest.mark.parametrize("target,feature,cutoff,issue,recorded,open_at,close_at", [
+    ("2025-07-03", "2025-07-02", "2025-07-02T20:00:00Z", "2025-07-02T20:15:00Z", "2025-07-02T20:30:00Z", "2025-07-03T13:30:00Z", "2025-07-03T17:00:00Z"),
+    ("2025-11-28", "2025-11-26", "2025-11-26T21:00:00Z", "2025-11-26T21:15:00Z", "2025-11-26T21:30:00Z", "2025-11-28T14:30:00Z", "2025-11-28T18:00:00Z"),
+])
+def test_record_accepts_nyse_early_close_boundaries_across_dst(tmp_path, target, feature, cutoff, issue, recorded, open_at, close_at):
+    db = tmp_path / f"{target}.sqlite"
+    row = {**forward(target=target), "feature_date": feature, "input_cutoff": cutoff, "issued_at": issue,
+           "training_cutoff": "2025-07-01T20:00:00Z" if target == "2025-07-03" else "2025-11-25T21:00:00Z",
+           "target_open_at": open_at, "target_close_at": close_at}
+    assert record_forecasts(db, pd.DataFrame([row]), recorded_at=recorded) == 1
 
 
 def test_recorded_strategy_is_immutable_through_settlement_and_reopen(tmp_path):

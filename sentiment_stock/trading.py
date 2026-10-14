@@ -6,12 +6,26 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 
 _TIME_COLUMNS = ("issued_at", "input_cutoff", "training_cutoff", "target_open_at", "target_close_at")
 _REQUIRED = ("run_id", "ticker", "feature_date", "issued_at", "input_cutoff", "training_cutoff", "target_date",
              "target_open_at", "target_close_at", "target_open", "target_close", "target_kind",
              "model", "feature_set", "prediction")
+_NYSE = mcal.get_calendar("NYSE")
+
+
+def _session_boundaries(dates: list[pd.Timestamp]) -> dict[pd.Timestamp, tuple[pd.Timestamp, pd.Timestamp]]:
+    """Return authoritative UTC open/close times keyed by naive NYSE session date."""
+    sessions = sorted({pd.Timestamp(value).normalize() for value in dates})
+    if not sessions:
+        return {}
+    schedule = _NYSE.schedule(start_date=sessions[0].date().isoformat(), end_date=sessions[-1].date().isoformat())
+    schedule.index = pd.to_datetime(schedule.index).tz_localize(None).normalize()
+    return {pd.Timestamp(session).normalize(): (pd.Timestamp(row.market_open).tz_convert("UTC"),
+                                                 pd.Timestamp(row.market_close).tz_convert("UTC"))
+            for session, row in schedule.iterrows()}
 
 
 def _finite_nonnegative(name: str, value: float, *, positive: bool = False) -> float:
@@ -87,8 +101,19 @@ def _validated_forecasts(forecasts: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("issued_at must follow input_cutoff")
     if (frame.training_cutoff >= frame.issued_at).any():
         raise ValueError("training_cutoff must precede issued_at")
-    if (frame.input_cutoff > frame.issued_at).any():
-        raise ValueError("input_cutoff cannot follow issued_at")
+    boundaries = _session_boundaries(frame.feature_date.tolist() + frame.target_date.tolist())
+    for feature_date, input_cutoff in zip(frame.feature_date, frame.input_cutoff):
+        session = boundaries.get(pd.Timestamp(feature_date))
+        if session is None:
+            raise ValueError("feature_date must be an NYSE session")
+        if input_cutoff < session[1]:
+            raise ValueError("input_cutoff precedes the NYSE feature session close")
+    for target_date, open_at, close_at in zip(frame.target_date, frame.target_open_at, frame.target_close_at):
+        session = boundaries.get(pd.Timestamp(target_date))
+        if session is None:
+            raise ValueError("target_date must be an NYSE session")
+        if open_at != session[0] or close_at != session[1]:
+            raise ValueError("target execution timestamps must match NYSE session boundaries")
     return frame.sort_values(["target_date", "ticker", "issued_at"], kind="stable").reset_index(drop=True)
 
 

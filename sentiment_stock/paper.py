@@ -9,6 +9,8 @@ from typing import Any
 
 import pandas as pd
 
+from .trading import _session_boundaries
+
 
 _IDENTITY = ("run_id", "model", "feature_set", "ticker", "target_kind", "target_date")
 _REQUIRED = (*_IDENTITY, "feature_date", "issued_at", "input_cutoff", "training_cutoff", "target_open_at", "target_close_at",
@@ -105,16 +107,30 @@ def _prepared(forecasts: pd.DataFrame, recorded_at: pd.Timestamp, threshold: flo
             raise ValueError("target_close_at must follow target_open_at")
         if feature_date > stamps["issued_at"].tz_localize(None).normalize():
             raise ValueError("issued_at precedes the feature session")
-        if stamps["target_open_at"].date().isoformat() != row["target_date"] or stamps["target_close_at"].date().isoformat() != row["target_date"]:
-            raise ValueError("target execution timestamps must match target_date")
         row.update({name: stamp.isoformat() for name, stamp in stamps.items()})
         row["prediction"] = _number(row["prediction"], "prediction")
         key = tuple(str(row[name]) for name in _IDENTITY)
         if key in seen:
             raise ValueError("duplicate forecast identity in batch")
         seen.add(key)
-        input_json = json.dumps(row, sort_keys=True, separators=(",", ":"), allow_nan=False)
-        result.append({"key": key, "row": row, "input_json": input_json})
+        result.append({"key": key, "row": row})
+    dates = [pd.Timestamp(item["row"][column]) for item in result for column in ("feature_date", "target_date")]
+    boundaries = _session_boundaries(dates)
+    for item in result:
+        row = item["row"]
+        feature_date, target_date = pd.Timestamp(row["feature_date"]), pd.Timestamp(row["target_date"])
+        feature_session = boundaries.get(feature_date)
+        target_session = boundaries.get(target_date)
+        if feature_session is None:
+            raise ValueError("feature_date must be an NYSE session")
+        if target_session is None:
+            raise ValueError("target_date must be an NYSE session")
+        if _stamp(row["input_cutoff"], "input_cutoff") < feature_session[1]:
+            raise ValueError("input_cutoff precedes the NYSE feature session close")
+        if (_stamp(row["target_open_at"], "target_open_at") != target_session[0] or
+                _stamp(row["target_close_at"], "target_close_at") != target_session[1]):
+            raise ValueError("target execution timestamps must match NYSE session boundaries")
+        item["input_json"] = json.dumps(row, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return result
 
 

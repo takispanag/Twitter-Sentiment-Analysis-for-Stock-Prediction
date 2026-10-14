@@ -108,6 +108,38 @@ def test_rejects_forecast_execution_times_outside_feature_target_chronology(chan
         backtest(pd.DataFrame([row]))
 
 
+def test_backtest_rejects_cutoff_before_feature_session_close():
+    row = forecast()
+    row.update({"feature_date": "2026-01-05", "input_cutoff": "2026-01-05T12:45:00Z",
+                "issued_at": "2026-01-05T13:00:00Z", "training_cutoff": "2026-01-02T21:00:00Z",
+                "target_date": "2026-01-06", "target_open_at": "2026-01-06T14:30:00Z",
+                "target_close_at": "2026-01-06T21:00:00Z"})
+    with pytest.raises(ValueError, match="close"):
+        backtest(pd.DataFrame([row]))
+
+
+def test_backtest_rejects_wrong_market_hours_on_a_real_session():
+    row = forecast()
+    row.update({"target_open_at": "2026-01-05T10:00:00Z", "target_close_at": "2026-01-05T20:00:00Z"})
+    with pytest.raises(ValueError, match="NYSE"):
+        backtest(pd.DataFrame([row]))
+
+
+@pytest.mark.parametrize("row", [
+    forecast(day="2025-07-03", issued="2025-07-02T20:15:00Z", training="2025-07-01T20:00:00Z"),
+    forecast(day="2025-11-28", issued="2025-11-26T21:15:00Z", training="2025-11-25T21:00:00Z"),
+])
+def test_backtest_accepts_nyse_early_close_boundaries_across_dst(row):
+    if str(row["target_date"].date()) == "2025-07-03":
+        row.update({"feature_date": "2025-07-02", "input_cutoff": "2025-07-02T20:00:00Z",
+                    "target_open_at": "2025-07-03T13:30:00Z", "target_close_at": "2025-07-03T17:00:00Z"})
+    else:
+        row.update({"feature_date": "2025-11-26", "input_cutoff": "2025-11-26T21:00:00Z",
+                    "target_open_at": "2025-11-28T14:30:00Z", "target_close_at": "2025-11-28T18:00:00Z"})
+    equity, _, _ = backtest(pd.DataFrame([row]))
+    assert len(equity) == 1
+
+
 def test_rejects_duplicate_ticker_session_and_invalid_strategy_values():
     with pytest.raises(ValueError, match="duplicate"):
         run([forecast(), forecast(run="other")])
