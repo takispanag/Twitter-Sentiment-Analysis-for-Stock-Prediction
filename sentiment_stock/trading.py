@@ -9,7 +9,7 @@ import pandas as pd
 
 
 _TIME_COLUMNS = ("issued_at", "input_cutoff", "training_cutoff", "target_open_at", "target_close_at")
-_REQUIRED = ("run_id", "ticker", "issued_at", "input_cutoff", "training_cutoff", "target_date",
+_REQUIRED = ("run_id", "ticker", "feature_date", "issued_at", "input_cutoff", "training_cutoff", "target_date",
              "target_open_at", "target_close_at", "target_open", "target_close", "target_kind",
              "model", "feature_set", "prediction")
 
@@ -45,13 +45,15 @@ def _validated_forecasts(forecasts: pd.DataFrame) -> pd.DataFrame:
         frame[column] = frame[column].map(lambda value: _timestamp(value, column))
     try:
         dates = pd.to_datetime(frame["target_date"], errors="raise")
+        feature_dates = pd.to_datetime(frame["feature_date"], errors="raise")
     except (TypeError, ValueError) as exc:
-        raise ValueError("target_date must identify a valid session date") from exc
-    if getattr(dates.dt, "tz", None) is not None:
-        raise ValueError("target_date must be a date-only session")
-    if (dates != dates.dt.normalize()).any():
-        raise ValueError("target_date must identify a date-only session")
+        raise ValueError("feature_date and target_date must identify valid session dates") from exc
+    if getattr(dates.dt, "tz", None) is not None or getattr(feature_dates.dt, "tz", None) is not None:
+        raise ValueError("feature_date and target_date must be date-only sessions")
+    if (dates != dates.dt.normalize()).any() or (feature_dates != feature_dates.dt.normalize()).any():
+        raise ValueError("feature_date and target_date must identify date-only sessions")
     frame["target_date"] = dates.dt.normalize()
+    frame["feature_date"] = feature_dates.dt.normalize()
     frame["ticker"] = frame.ticker.astype("string").str.strip().str.upper()
     if frame.ticker.isna().any() or frame.ticker.eq("").any():
         raise ValueError("forecast ticker values must be present")
@@ -72,6 +74,17 @@ def _validated_forecasts(forecasts: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("target close must follow target open")
     if (frame.issued_at > frame.target_open_at).any():
         raise ValueError("forecast issue time is after target entry")
+    if (frame.feature_date >= frame.target_date).any():
+        raise ValueError("feature_date must precede target_date")
+    issue_date = frame.issued_at.dt.tz_localize(None).dt.normalize()
+    if (frame.feature_date > issue_date).any():
+        raise ValueError("issued_at precedes the feature session")
+    open_date = frame.target_open_at.dt.tz_localize(None).dt.normalize()
+    close_date = frame.target_close_at.dt.tz_localize(None).dt.normalize()
+    if (open_date != frame.target_date).any() or (close_date != frame.target_date).any():
+        raise ValueError("target execution timestamps must match target_date")
+    if (frame.input_cutoff >= frame.issued_at).any():
+        raise ValueError("issued_at must follow input_cutoff")
     if (frame.training_cutoff >= frame.issued_at).any():
         raise ValueError("training_cutoff must precede issued_at")
     if (frame.input_cutoff > frame.issued_at).any():
@@ -150,7 +163,8 @@ def backtest(forecasts: pd.DataFrame, *, model: str = "linear", feature_set: str
     equity = pd.DataFrame(equity_rows)
     for column in ("gross_equity", "net_equity", "benchmark_equity"):
         equity[f"{column}_return"] = equity[column].pct_change().fillna(equity[column].iloc[0] / initial_cash - 1)
-        equity[f"{column}_drawdown"] = equity[column] / equity[column].cummax() - 1
+        peaks = pd.concat([pd.Series([initial_cash]), equity[column].reset_index(drop=True)], ignore_index=True).cummax().iloc[1:].to_numpy()
+        equity[f"{column}_drawdown"] = equity[column].to_numpy() / peaks - 1
     total_return = float(equity.net_equity.iloc[-1] / initial_cash - 1)
     gross_return = float(equity.gross_equity.iloc[-1] / initial_cash - 1)
     benchmark_return = float(equity.benchmark_equity.iloc[-1] / initial_cash - 1)

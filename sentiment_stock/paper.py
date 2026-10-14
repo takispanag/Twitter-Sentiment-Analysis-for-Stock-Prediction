@@ -11,7 +11,7 @@ import pandas as pd
 
 
 _IDENTITY = ("run_id", "model", "feature_set", "ticker", "target_kind", "target_date")
-_REQUIRED = (*_IDENTITY, "issued_at", "input_cutoff", "training_cutoff", "target_open_at", "target_close_at",
+_REQUIRED = (*_IDENTITY, "feature_date", "issued_at", "input_cutoff", "training_cutoff", "target_open_at", "target_close_at",
              "prediction")
 _FORBIDDEN = {"actual", "actual_return", "target_open", "target_close", "next_open", "next_close"}
 _SCHEMA = """
@@ -85,15 +85,28 @@ def _prepared(forecasts: pd.DataFrame, recorded_at: pd.Timestamp, threshold: flo
         if pd.isna(target_date) or (target_date.tzinfo is not None) or target_date != target_date.normalize():
             raise ValueError("target_date must be a date-only session")
         row["target_date"] = target_date.date().isoformat()
+        try:
+            feature_date = pd.Timestamp(row["feature_date"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("feature_date must identify a feature session") from exc
+        if pd.isna(feature_date) or feature_date.tzinfo is not None or feature_date != feature_date.normalize():
+            raise ValueError("feature_date must be a date-only session")
+        if feature_date >= target_date:
+            raise ValueError("feature_date must precede target_date")
+        row["feature_date"] = feature_date.date().isoformat()
         stamps = {name: _stamp(row[name], name) for name in ("issued_at", "input_cutoff", "training_cutoff", "target_open_at", "target_close_at")}
         if stamps["issued_at"] > recorded_at or recorded_at >= stamps["target_open_at"]:
             raise ValueError("recorded_at must satisfy issued_at <= recorded_at < target_open_at")
         if stamps["training_cutoff"] >= stamps["issued_at"]:
             raise ValueError("training_cutoff must precede issued_at")
-        if stamps["input_cutoff"] > stamps["issued_at"]:
-            raise ValueError("input_cutoff cannot follow issued_at")
+        if stamps["input_cutoff"] >= stamps["issued_at"]:
+            raise ValueError("issued_at must follow input_cutoff")
         if stamps["target_close_at"] <= stamps["target_open_at"]:
             raise ValueError("target_close_at must follow target_open_at")
+        if feature_date > stamps["issued_at"].tz_localize(None).normalize():
+            raise ValueError("issued_at precedes the feature session")
+        if stamps["target_open_at"].date().isoformat() != row["target_date"] or stamps["target_close_at"].date().isoformat() != row["target_date"]:
+            raise ValueError("target execution timestamps must match target_date")
         row.update({name: stamp.isoformat() for name, stamp in stamps.items()})
         row["prediction"] = _number(row["prediction"], "prediction")
         key = tuple(str(row[name]) for name in _IDENTITY)
@@ -150,8 +163,6 @@ def _price_rows(prices: pd.DataFrame) -> dict[tuple[str, str], dict[str, Any]]:
     missing = required - set(prices.columns)
     if missing:
         raise ValueError(f"canonical prices missing columns: {', '.join(sorted(missing))}")
-    if prices.duplicated(["ticker", "date"]).any():
-        raise ValueError("duplicate ticker/session prices")
     result = {}
     for raw in prices.to_dict("records"):
         ticker = str(raw["ticker"]).strip().upper()
@@ -162,7 +173,10 @@ def _price_rows(prices: pd.DataFrame) -> dict[tuple[str, str], dict[str, Any]]:
         market_open, market_close = _stamp(raw["market_open"], "market_open"), _stamp(raw["market_close"], "market_close")
         if market_close <= market_open:
             raise ValueError("market_close must follow market_open")
-        result[(ticker, date.date().isoformat())] = {"open": open_, "close": close,
+        key = (ticker, date.date().isoformat())
+        if key in result:
+            raise ValueError("duplicate ticker/session prices after normalization")
+        result[key] = {"open": open_, "close": close,
               "market_open": market_open.isoformat(), "market_close": market_close.isoformat()}
     return result
 

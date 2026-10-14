@@ -11,7 +11,7 @@ def forecast(ticker="AAA", day="2026-01-05", *, prediction=0.1, open_=100.0, clo
              target_kind="return", training=None):
     target = pd.Timestamp(day)
     return {
-        "run_id": run, "ticker": ticker, "feature_date": target - pd.Timedelta(days=1),
+        "run_id": run, "ticker": ticker, "feature_date": pd.Timestamp("2026-01-02"),
         "issued_at": pd.Timestamp(issued or "2026-01-02T21:15:00Z"),
         "input_cutoff": pd.Timestamp("2026-01-02T21:00:00Z"),
         "training_cutoff": pd.Timestamp(training or "2026-01-01T21:00:00Z"),
@@ -61,6 +61,12 @@ def test_slippage_changes_entry_and_exit_fill_prices():
     assert trades.iloc[0].exit_price == pytest.approx(108.9)
 
 
+def test_max_drawdown_includes_decline_from_initial_cash():
+    equity, _, summary = run([forecast(prediction=0.1, open_=100, close=90)])
+    assert equity.iloc[-1].net_equity == pytest.approx(900)
+    assert summary["max_drawdown"] == pytest.approx(-0.1)
+
+
 def test_equal_ticker_allocations_prevent_full_capital_profit_per_ticker():
     rows = [forecast("AAA", prediction=0.1), forecast("BBB", prediction=0.1, close=90)]
     equity, _, _ = run(rows)
@@ -84,6 +90,18 @@ def test_missing_forecast_session_stays_cash_and_buy_hold_includes_overnight_gap
     {"current_close": float("nan")},
 ])
 def test_rejects_ineligible_or_malformed_forecasts(changes):
+    row = forecast()
+    row.update(changes)
+    with pytest.raises(ValueError):
+        backtest(pd.DataFrame([row]))
+
+
+@pytest.mark.parametrize("changes", [
+    {"feature_date": "2026-01-07"},
+    {"issued_at": "2026-01-04T23:00:00Z", "input_cutoff": "2026-01-04T23:00:00Z"},
+    {"target_open_at": "2026-01-07T14:30:00Z", "target_close_at": "2026-01-07T21:00:00Z"},
+])
+def test_rejects_forecast_execution_times_outside_feature_target_chronology(changes):
     row = forecast()
     row.update(changes)
     with pytest.raises(ValueError):

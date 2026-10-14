@@ -70,6 +70,19 @@ def test_entire_batch_validates_before_any_insert(tmp_path):
     assert read_paper(db).empty
 
 
+def test_record_rejects_feature_and_target_time_inconsistency(tmp_path):
+    db = tmp_path / "paper.sqlite"
+    rows = [
+        {**forward(), "feature_date": "2026-01-07"},
+        {**forward(), "issued_at": "2026-01-04T23:00:00Z", "input_cutoff": "2026-01-04T23:00:00Z"},
+        {**forward(), "target_open_at": "2026-01-07T14:30:00Z", "target_close_at": "2026-01-07T21:00:00Z"},
+    ]
+    for row in rows:
+        with pytest.raises(ValueError):
+            record_forecasts(db, pd.DataFrame([row]), recorded_at=NOW)
+    assert read_paper(db).empty
+
+
 def test_recorded_strategy_is_immutable_through_settlement_and_reopen(tmp_path):
     db = tmp_path / "paper.sqlite"
     record_forecasts(db, pd.DataFrame([forward()]), recorded_at=NOW, threshold=0.05,
@@ -97,6 +110,16 @@ def test_settlement_rejects_mismatched_session_and_rewrite_of_settled_prices(tmp
     settle_forecasts(db, prices(), as_of="2026-01-06T22:00:00Z")
     with pytest.raises(ValueError, match="mismatch"):
         settle_forecasts(db, prices(close=111), as_of="2026-01-07T22:00:00Z")
+
+
+def test_settlement_rejects_duplicate_prices_after_ticker_normalization(tmp_path):
+    db = tmp_path / "paper.sqlite"
+    record_forecasts(db, pd.DataFrame([forward()]), recorded_at=NOW)
+    duplicate = pd.concat([prices(), prices(ticker="aaa", close=120)], ignore_index=True)
+    duplicate.loc[1, "date"] = pd.Timestamp("2026-01-06")
+    with pytest.raises(ValueError, match="duplicate"):
+        settle_forecasts(db, duplicate, as_of="2026-01-06T22:00:00Z")
+    assert read_paper(db).iloc[0].status == "pending"
 
 
 def test_identity_allows_distinct_strategy_experiments(tmp_path):
