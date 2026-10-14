@@ -12,6 +12,8 @@ from .demo import make_demo
 from .sentiment import score_posts
 from .features import build_features
 from .research import run_research, forecast_latest
+from .trading import backtest, cost_sensitivity
+from .paper import record_forecasts, settle_forecasts, read_paper
 import hashlib
 import numpy as np
 
@@ -41,6 +43,17 @@ def _parser() -> argparse.ArgumentParser:
     forecast = commands.add_parser("forecast", help="record an offline forward forecast from canonical input files")
     forecast.add_argument("--prices", type=Path, required=True); forecast.add_argument("--posts", type=Path, required=True); forecast.add_argument("--output", type=Path, required=True); forecast.add_argument("--as-of", required=True)
     forecast.add_argument("--encoder", choices=["provided", "vader", "finbert", "twitter"], default="provided"); forecast.add_argument("--model", default="linear"); forecast.add_argument("--feature-set", default="price_sentiment"); forecast.add_argument("--seed", type=int, default=11)
+    backtest_cmd = commands.add_parser("backtest", help="backtest saved historical forecasts")
+    backtest_cmd.add_argument("--run", type=Path, required=True); backtest_cmd.add_argument("--output", type=Path, required=True)
+    backtest_cmd.add_argument("--model", default="linear"); backtest_cmd.add_argument("--feature-set", default="price_sentiment")
+    backtest_cmd.add_argument("--threshold", type=float, default=0.0); backtest_cmd.add_argument("--cost-bps", type=float, default=5.0); backtest_cmd.add_argument("--slippage-bps", type=float, default=5.0)
+    paper_record = commands.add_parser("paper-record", help="append eligible forward forecasts to the paper ledger")
+    paper_record.add_argument("--forecasts", type=Path, required=True); paper_record.add_argument("--db", type=Path, required=True)
+    paper_record.add_argument("--threshold", type=float, default=0.0); paper_record.add_argument("--cost-bps", type=float, default=5.0); paper_record.add_argument("--slippage-bps", type=float, default=5.0)
+    paper_settle = commands.add_parser("paper-settle", help="settle due paper forecasts against canonical prices")
+    paper_settle.add_argument("--prices", type=Path, required=True); paper_settle.add_argument("--db", type=Path, required=True)
+    paper_status = commands.add_parser("paper-status", help="inspect pending and settled paper forecasts")
+    paper_status.add_argument("--db", type=Path, required=True)
     return parser
 
 
@@ -96,12 +109,44 @@ def main(argv: list[str] | None = None) -> int:
             forecast_metadata["dataset_metadata"] = metadata
             forecast_metadata_path.write_text(json.dumps(forecast_metadata, indent=2, default=str) + "\n", encoding="utf-8")
             result = {"output": str(args.output), "forecast_rows": len(forecast)}
+        elif args.command == "backtest":
+            input_path = args.run / "forecasts.csv" if args.run.is_dir() else args.run
+            if not input_path.is_file():
+                candidate = args.run / "forecast.csv"
+                if candidate.is_file():
+                    input_path = candidate
+                else:
+                    raise ValueError(f"forecast CSV not found in {args.run}")
+            forecasts = pd.read_csv(input_path)
+            strategy = {"model": args.model, "feature_set": args.feature_set, "threshold": args.threshold,
+                        "cost_bps": args.cost_bps, "slippage_bps": args.slippage_bps}
+            equity, trades, summary = backtest(forecasts, **strategy)
+            sensitivity = cost_sensitivity(forecasts, model=args.model, feature_set=args.feature_set,
+                threshold=args.threshold, slippage_bps=args.slippage_bps)
+            args.output.mkdir(parents=True, exist_ok=True)
+            equity.to_csv(args.output / "equity.csv", index=False)
+            trades.to_csv(args.output / "trades.csv", index=False)
+            sensitivity.to_csv(args.output / "cost_sensitivity.csv", index=False)
+            (args.output / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
+            result = {"output": str(args.output), "trade_rows": len(trades)}
+        elif args.command == "paper-record":
+            count = record_forecasts(args.db, pd.read_csv(args.forecasts), threshold=args.threshold,
+                                     cost_bps=args.cost_bps, slippage_bps=args.slippage_bps)
+            result = {"output": str(args.db), "recorded_rows": count}
+        elif args.command == "paper-settle":
+            prices = pd.read_csv(args.prices)
+            count = settle_forecasts(args.db, prices)
+            result = {"output": str(args.db), "settled_rows": count}
+        elif args.command == "paper-status":
+            records = read_paper(args.db)
+            result = {"output": str(args.db), "pending_rows": int(records.status.eq("pending").sum()) if len(records) else 0,
+                      "settled_rows": int(records.status.eq("settled").sum()) if len(records) else 0}
         else:
             posts = collect_x(args.query, args.start, args.end, args.ticker, args.output, archive=args.archive, max_pages=args.max_pages); result = {"output": str(args.output), "post_rows": len(posts)}
     except (ValueError, RuntimeError, OSError, ImportError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 1
     summary = [f"output={result['output']}"]
-    for field in ("price_rows", "post_rows", "forecast_rows", "metric_rows"):
+    for field in ("price_rows", "post_rows", "forecast_rows", "metric_rows", "trade_rows", "recorded_rows", "settled_rows", "pending_rows"):
         if field in result: summary.append(f"{field}={result[field]}")
     print(" ".join(summary))
     return 0
