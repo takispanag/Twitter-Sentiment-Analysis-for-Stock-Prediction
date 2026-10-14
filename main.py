@@ -1,49 +1,53 @@
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.svm import LinearSVR
+"""Compatibility entry point for the original scripts; configuration is loaded only when run."""
 import pandas as pd
-import config
-from linear_pipeline import model_results, model_training
-from lstm import lstm_trainer
-from lstm.lstm_pipeline import lstm_results
-from sentiment_analysis import get_historical_sentiment
-from stock_prices_acquisition import stock_prices
-from xgboost import XGBRegressor
 
+
+def _config():
+    try:
+        import config
+    except ImportError as exc:
+        raise RuntimeError("Legacy training needs a local config.py; copy config.example.py and add company_names. Credentials are not needed for training.") from exc
+    return config
+
+
+def _company_names(config):
+    names = getattr(config, "company_names", None) or getattr(config, "COMPANIES", None)
+    if not names:
+        raise RuntimeError("Legacy config.py must define company_names or COMPANIES.")
+    return names
+
+def chronological_splits(data, train_fraction=.8, validation_fraction=.2):
+    """Split sorted rows into past-only fit, validation, and final test blocks."""
+    data = data.sort_index()
+    train_end = int(len(data) * train_fraction)
+    train_validation = data.iloc[:train_end]
+    fit_end = int(len(train_validation) * (1 - validation_fraction))
+    return train_validation.iloc[:fit_end], train_validation.iloc[fit_end:], data.iloc[train_end:]
 
 def train_models():
-	# Linear, XGBOOST, SVR train/test
-	for company_name in config.company_names:
-		company_sentiment = pd.read_csv(f"data/sentiment/{company_name}.csv", index_col=0)
-		company_data = pd.read_csv(f"data/stock_prices/{company_name}_stock_price.csv", index_col=0)
-		company_data['Sentiment'] = company_sentiment
-		company_data['Label'] = company_data['Close'].shift(-1)
-		company_data = company_data.dropna().round(5)
-		# Lessen Dimensions for Non DL models
-		linear_data = company_data[['Close', 'Sentiment', 'Label']]
-		train_data = linear_data.iloc[:int(linear_data.shape[0] * 0.9)]  # get 90% of data for training/validation
-		test_data = linear_data.iloc[int(linear_data.shape[0] * 0.9):]  # get 10% of data for prediction:)
-		x_train, x_val, y_train, y_val = train_test_split(train_data.loc[:, linear_data.columns != 'Label'], train_data['Label'], train_size=0.75, random_state=11)
-
-		models = {"Linear": LinearRegression(), "XGBoost": XGBRegressor(), "SVR": LinearSVR()}
-		for model_name in models:
-			model_training(x_train, y_train, company_name, model_name, models[model_name])
-
-			model_results(company_name, x_train.sort_index(), y_train.sort_index(), "train", model_name)
-			model_results(company_name, x_val.sort_index(), y_val.sort_index(), "val", model_name)
-			model_results(company_name, test_data.loc[:, linear_data.columns != 'Label'], test_data['Label'], "test", model_name)
-		# train lstm with mode data
-		train_data = company_data.iloc[:int(company_data.shape[0] * 0.9)]  # get 90% of data for training/validation
-		test_data = company_data.iloc[int(company_data.shape[0] * 0.9):]  # get 10% of data for prediction:)
-		x_train, x_val, y_train, y_val = train_test_split(train_data.loc[:, company_data.columns != 'Label'], train_data['Label'], train_size=0.75, random_state=11)
-		lstm_trainer.train(x_train.copy(), x_val.copy(), y_train.copy(), y_val.copy(), company_name)
-		lstm_results(company_name, x_train.sort_index(), y_train.sort_index(), "train")
-		lstm_results(company_name, x_val.sort_index(), y_val.sort_index(), "val")
-		# test lstm
-		lstm_results(company_name, test_data.loc[:, company_data.columns != 'Label'], test_data['Label'], "test")
-
+    config = _config()
+    from sklearn.linear_model import LinearRegression
+    from sklearn.svm import LinearSVR
+    from xgboost import XGBRegressor
+    from linear_pipeline import model_results, model_training
+    from lstm import lstm_trainer
+    from lstm.lstm_pipeline import lstm_results
+    from sklearn.preprocessing import StandardScaler
+    for company_name in _company_names(config):
+        company_sentiment = pd.read_csv(f"data/sentiment/{company_name}.csv", index_col=0)
+        company_data = pd.read_csv(f"data/stock_prices/{company_name}_stock_price.csv", index_col=0)
+        company_data['Sentiment'] = company_sentiment.iloc[:, 0].to_numpy()
+        company_data['Label'] = company_data['Close'].shift(-1)
+        company_data = company_data.dropna().sort_index().round(5)
+        fit_data, val_data, test_data = chronological_splits(company_data)
+        model_x = ['Close', 'Sentiment']
+        for name, estimator in {"Linear": LinearRegression(), "XGBoost": XGBRegressor(n_estimators=100, max_depth=3, n_jobs=1), "SVR": LinearSVR(random_state=11, max_iter=5000)}.items():
+            model_training(fit_data[model_x], fit_data.Label, company_name, name, estimator)
+            for data, mode in ((fit_data, "train"), (val_data, "val"), (test_data, "test")):
+                model_results(company_name, data[model_x], data.Label, mode, name)
+        lstm_trainer.train(fit_data[model_x].copy(), val_data[model_x].copy(), fit_data.Label.copy(), val_data.Label.copy(), company_name)
+        for data, mode in ((fit_data, "train"), (val_data, "val"), (test_data, "test")):
+            lstm_results(company_name, data[model_x], data.Label, mode)
 
 if __name__ == "__main__":
-	# get_historical_sentiment()
-	# stock_prices()
-	train_models()
+    train_models()

@@ -4,11 +4,7 @@ import datetime as dt
 import os
 
 def create_folder(path):
-    if os.path.exists(path):
-        print("Path Exists")
-    else:
-        os.mkdir(path)
-        print("Path Created")
+    os.makedirs(path, exist_ok=True)
 
 def percentage(part, whole):
   return round((float(part)/float(whole)),3)

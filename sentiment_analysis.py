@@ -1,10 +1,9 @@
 import numpy as np
 import pandas as pd
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import time
 from multiprocessing import Process, Manager
 
-import config
 from utils import percentage, create_folder
 
 NUMBER_OF_PROCESSES = 10
@@ -27,8 +26,9 @@ def wordAnalyser(df, sentiment, threadNum):
     print(f"Process {threadNum}: finished")
 
 
-def sentiment_Analysis_Parallel(company_name):
-    df = pd.read_csv(f"data/tweets_by_stock/{company_name}_tweets.csv")
+def sentiment_Analysis_Parallel(company_name, df=None):
+    if df is None:
+        df = pd.read_csv(f"data/tweets_by_stock/{company_name}_tweets.csv")
     df = df[["post_date", "body"]]
     manager = Manager()
     sentiments = manager.dict()
@@ -57,6 +57,11 @@ def sentiment_Analysis_Parallel(company_name):
 
 def sentiment_avg(company, df):
     # df = pd.read_csv(f"data/new_data/{company}_sentiment.csv")
+    if df is None or df.empty:
+        new_df = pd.DataFrame(columns=["Date", "Sentiment"])
+        create_folder("data/new_data/stock_daily_avg_sentiment/v2")
+        new_df.to_csv(f"data/new_data/stock_daily_avg_sentiment/v2/{company}_avg_sentiment.csv", index=False)
+        return new_df
     pos_sentiment = 0
     neg_sentiment = 0
     data = []
@@ -71,8 +76,13 @@ def sentiment_avg(company, df):
     new_df = pd.DataFrame(data, columns=['Date', 'Sentiment'])
     create_folder("data/new_data/stock_daily_avg_sentiment/v2")
     new_df.to_csv(f"data/new_data/stock_daily_avg_sentiment/v2/{company}_avg_sentiment.csv", index=False)
+    return new_df
 
 def get_historical_sentiment():
-    for company_name in config.company_names:
+    try:
+        import config
+    except ImportError as exc:
+        raise RuntimeError("Legacy sentiment aggregation needs a local config.py; copy config.example.py and set company_names.") from exc
+    for company_name in getattr(config, "company_names", None) or getattr(config, "COMPANIES", []):
         sentiment_avg(company_name, sentiment_Analysis_Parallel(company_name))  # sentiment analysis and write to csv
         # get day avg sentiment and write to csv Format: ["Date", "Sentiment"]

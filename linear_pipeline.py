@@ -1,9 +1,15 @@
 import pandas as pd
-from matplotlib import pyplot as plt
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, mean_squared_error, r2_score
 from data_serializer import load_pickle, save_pickle
 from utils import create_folder
-import plotly.express as px
+
+def align_actual_predictions(actual, predictions):
+	"""Pair each prediction with the target at the same index; never shift labels."""
+	actual = pd.Series(actual).copy()
+	if len(actual) != len(predictions):
+		raise ValueError("actual and prediction lengths must match")
+	predictions = pd.Series(predictions, index=actual.index)
+	return actual, predictions
 import plotly.graph_objects as go
 import plotly.io as pio
 
@@ -15,8 +21,9 @@ def model_training(x_train, y_train, company_name, model_name, model):
 def model_results(company, x, y, mode, model_name):
 	results = pd.DataFrame()
 	prediction = load_pickle(company, model_name, "models").predict(x)
-	results["Actual Close"] = y.shift(1).dropna()
-	results["Prediction"] = pd.Series(prediction, index=y.index)
+	actual, prediction = align_actual_predictions(y, prediction)
+	results["Actual Close"] = actual
+	results["Prediction"] = prediction
 
 	metrics = pd.DataFrame()
 
@@ -40,4 +47,3 @@ def model_results(company, x, y, mode, model_name):
 		fig.add_trace(go.Scatter(x=results.index, y=results[column], mode='lines+markers', line=dict(color=color), name=column))
 	create_folder(f"charts/{mode}")
 	fig.write_html(f"charts/{mode}/{model_name}_pred_{company}.html")
-	fig.write_image(f"charts/{mode}/{model_name}_pred_{company}.png")

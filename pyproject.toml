@@ -19,10 +19,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-models = ["xgboost>=2,<4"]
+models = ["xgboost>=2,<4", "torch>=2.5,<3"]
 nlp = ["torch>=2,<3", "transformers>=4.38,<6"]
-test = ["pytest>=8,<9"]
-legacy = ["tensorflow>=2.15,<3"]
+test = ["pytest>=8,<10"]
 
 [project.scripts]
 sentiment-stock = "sentiment_stock.cli:main"
