@@ -1,0 +1,385 @@
+{
+  "source_commit": "4818069c5c22f085aab08d127326a578a79e55d5",
+  "files": [
+    {
+      "path": "charts/loss_curves/lstm_training_AAPL.png",
+      "sha256": "f76be62e055e89eb58682fdc517d6acfae14b9f50a4d4ab9f335d09cd1dc09b7",
+      "bytes": 192918
+    },
+    {
+      "path": "charts/loss_curves/lstm_training_AMZN.png",
+      "sha256": "04ab705d4c734ceb5c0e3d61d5d58f51634bbde2a2f25d42b59992900373b9b3",
+      "bytes": 177565
+    },
+    {
+      "path": "charts/loss_curves/lstm_training_GOOG.png",
+      "sha256": "be3116b3a9f43e79b642daecfde7b05539220c1e0b60081936129b78e1ef5479",
+      "bytes": 190369
+    },
+    {
+      "path": "charts/loss_curves/lstm_training_MSFT.png",
+      "sha256": "f279e54f321e819106eb27251845aeda8052dc264a32421097a0894398427c31",
+      "bytes": 184099
+    },
+    {
+      "path": "charts/loss_curves/lstm_training_TSLA.png",
+      "sha256": "15ab3e65b5187df730ade7e8536e8b59f1f477b67ca535907e2e1fee95d9e7b2",
+      "bytes": 185492
+    },
+    {
+      "path": "charts/test/SVR_pred_AAPL.png",
+      "sha256": "eec9474d55f14880c3e66f8973ad44aa9f8253109cf31adc4262deca46cd69e4",
+      "bytes": 245211
+    },
+    {
+      "path": "charts/test/SVR_pred_AMZN.png",
+      "sha256": "b1827518ba214cfaf281aae3afafaf95fdb8d24c2161e14e1b79a1d32f2a3539",
+      "bytes": 323803
+    },
+    {
+      "path": "charts/test/SVR_pred_GOOG.png",
+      "sha256": "50e67ca7a25a31f0e48f6b32aa3c5abdcfd52233daa97374a403413eec85c70d",
+      "bytes": 299980
+    },
+    {
+      "path": "charts/test/SVR_pred_MSFT.png",
+      "sha256": "83ee7e1dbe77c4f9ef1b7103bfc48ccbc1d08b9b827b323d77c5a59de376cb4e",
+      "bytes": 295333
+    },
+    {
+      "path": "charts/test/SVR_pred_TSLA.png",
+      "sha256": "4e02a0cc4f6695a08281eb50981556251efd0f39200a02f7bb747eac39d53af7",
+      "bytes": 248813
+    },
+    {
+      "path": "charts/test/linear_pred_AAPL.png",
+      "sha256": "cfc2a0901a24f88ca4de09477faad27c2adaeda9cea69a46477bfd8ee46b2292",
+      "bytes": 211884
+    },
+    {
+      "path": "charts/test/linear_pred_AMZN.png",
+      "sha256": "cd7e2116d2096616dfc74f7b14c7696abddb1f09cdb7dc1c4bccf9e2f5e70e0b",
+      "bytes": 282888
+    },
+    {
+      "path": "charts/test/linear_pred_GOOG.png",
+      "sha256": "e0d606feaec5424dc82eccd9e848a3d304ca069de97a238f256220cafc75ba2a",
+      "bytes": 254885
+    },
+    {
+      "path": "charts/test/linear_pred_MSFT.png",
+      "sha256": "97b63b12e1faf2d8ab510b0b2ef7d9d1c4d68454850e3c1527a8714b14941cd6",
+      "bytes": 267631
+    },
+    {
+      "path": "charts/test/linear_pred_TSLA.png",
+      "sha256": "4cc11cb684a2240c30c8b49915f6006546a029a7c9482aefcd142ed34ed5d022",
+      "bytes": 212592
+    },
+    {
+      "path": "charts/test/lstm_pred_AAPL.png",
+      "sha256": "1860aa4d17304e5287708fc59940d9555d0abddfcfd614cbd29edda91aa80de6",
+      "bytes": 214237
+    },
+    {
+      "path": "charts/test/lstm_pred_AMZN.png",
+      "sha256": "117e24d6f2b7e8196d76127608bc453ccdc4490ad0c692315d47a4ee9a43c362",
+      "bytes": 345630
+    },
+    {
+      "path": "charts/test/lstm_pred_GOOG.png",
+      "sha256": "6721796762abac6b159a2a2b53c9cd5a5d293c7a5d9579eb10781eb0741805aa",
+      "bytes": 281868
+    },
+    {
+      "path": "charts/test/lstm_pred_MSFT.png",
+      "sha256": "58e369030185d0e8c1ea58fd46b064a2b5393bd26af12c8d4db8bcf9ed84ca29",
+      "bytes": 259004
+    },
+    {
+      "path": "charts/test/lstm_pred_TSLA.png",
+      "sha256": "a6dfa8d7817d624caeff10fbd4fda27c2ffc128953b76371f7e26cecda729026",
+      "bytes": 224987
+    },
+    {
+      "path": "charts/test/xgboost_pred_AAPL.png",
+      "sha256": "369b77682ff69140649663cc8ddc8fd48d700d6492675d36caef0f566a46ad08",
+      "bytes": 240865
+    },
+    {
+      "path": "charts/test/xgboost_pred_AMZN.png",
+      "sha256": "aa5e7013434a529cd8fb706a63cd68624c9298fea5089145b90bdba5282607fd",
+      "bytes": 395350
+    },
+    {
+      "path": "charts/test/xgboost_pred_GOOG.png",
+      "sha256": "06a909636050cd8faf73d4083f59373e3b09cc7930670571ac99b0157cf8c728",
+      "bytes": 329728
+    },
+    {
+      "path": "charts/test/xgboost_pred_MSFT.png",
+      "sha256": "23e91ed8479f08eb5b8a712b51eb15e75c21307965f39d3880cb734baaffdebe",
+      "bytes": 292482
+    },
+    {
+      "path": "charts/test/xgboost_pred_TSLA.png",
+      "sha256": "0af7cdd685280475d6b541bad646e615abf95045462775cbc2e305eaee01d048",
+      "bytes": 249866
+    },
+    {
+      "path": "charts/train/SVR_pred_AAPL.png",
+      "sha256": "45badefb15e40cf4ff59d286bc30b36f507d38726fc034fcb914d6ba1e05e7a2",
+      "bytes": 302959
+    },
+    {
+      "path": "charts/train/SVR_pred_AMZN.png",
+      "sha256": "fb13f69a0bb97750c413f5411f8303fa44db7da83560e253dccf089821eb8715",
+      "bytes": 250394
+    },
+    {
+      "path": "charts/train/SVR_pred_GOOG.png",
+      "sha256": "c3c8284731c734ad52f98fe5a85af77ca4a274f123d455b5e511120e06d52dc8",
+      "bytes": 298105
+    },
+    {
+      "path": "charts/train/SVR_pred_MSFT.png",
+      "sha256": "6aa264fa42d4cd7113ca7eee9c48bdfa66fe14694726ae51664f3abf0690d47d",
+      "bytes": 285415
+    },
+    {
+      "path": "charts/train/SVR_pred_TSLA.png",
+      "sha256": "7af3246b645febb2ccb7a0b0da7b28a3bd205e4f8ca8767f3db90ac6801bfb8c",
+      "bytes": 396834
+    },
+    {
+      "path": "charts/train/linear_pred_AAPL.png",
+      "sha256": "222babd7a71c72dfcac37eceadf31f6c567a4dd8cc33b98fbfd09ab11201b940",
+      "bytes": 288085
+    },
+    {
+      "path": "charts/train/linear_pred_AMZN.png",
+      "sha256": "08623cd3979d342852abbb9f71a9dcf8c03079c80272e3167cbe857dc615c762",
+      "bytes": 249705
+    },
+    {
+      "path": "charts/train/linear_pred_GOOG.png",
+      "sha256": "8311ef4af42e14f792d623aa7b857ca32ded2d35a20ba9fa1c69ff972244eae1",
+      "bytes": 292470
+    },
+    {
+      "path": "charts/train/linear_pred_MSFT.png",
+      "sha256": "b5bd6466a7ab8caeb76099d92dc8f82da8002b1de3b8018ae3c7d7b83124ce4a",
+      "bytes": 248794
+    },
+    {
+      "path": "charts/train/linear_pred_TSLA.png",
+      "sha256": "9ba62f0e0e74844fc9494e6f27d7620e31f3253e64e566095fd3f6c229f83680",
+      "bytes": 368936
+    },
+    {
+      "path": "charts/train/lstm_pred_AAPL.png",
+      "sha256": "bae49ab4ba3dae348ad8b8354e18eac9582077d3d6f7e5f2982b2aadce20fcb5",
+      "bytes": 293017
+    },
+    {
+      "path": "charts/train/lstm_pred_AMZN.png",
+      "sha256": "6c1f5dc1d2b61fcfe8a5fb7140099870ed7416c8b169ca04798389b7c7ce8385",
+      "bytes": 258367
+    },
+    {
+      "path": "charts/train/lstm_pred_GOOG.png",
+      "sha256": "a3035ae9e7760c4b6cf681c5bcaf48314efad826badbe8c37a2fc2997ef07460",
+      "bytes": 295519
+    },
+    {
+      "path": "charts/train/lstm_pred_MSFT.png",
+      "sha256": "145e0abf29a02a71c0e244a1159f29d10172e9655792f824abde6818b6d8565f",
+      "bytes": 252281
+    },
+    {
+      "path": "charts/train/lstm_pred_TSLA.png",
+      "sha256": "3110236a70ae1972ce9aae9586f3a2929b05d4c83389fd6a8b5471e46e2fd26a",
+      "bytes": 374246
+    },
+    {
+      "path": "charts/train/xgboost_pred_AAPL.png",
+      "sha256": "3fee6a9457e6e29e59929dd97d48d8052d0575d784b12e199f41c610597e70f2",
+      "bytes": 293505
+    },
+    {
+      "path": "charts/train/xgboost_pred_AMZN.png",
+      "sha256": "6c7c3535eca840e557fb3a698a10092f8875607991cf0f39055fe634f8f108bd",
+      "bytes": 250811
+    },
+    {
+      "path": "charts/train/xgboost_pred_GOOG.png",
+      "sha256": "988dbcf677011cf9d4cf2cfbd56942ed037c184310e8f9a5660b60c8dd41a264",
+      "bytes": 295306
+    },
+    {
+      "path": "charts/train/xgboost_pred_MSFT.png",
+      "sha256": "c3b217ccf278d94dcea63886dcc399e3729e8145d31440af140d8834ec63c1e9",
+      "bytes": 248966
+    },
+    {
+      "path": "charts/train/xgboost_pred_TSLA.png",
+      "sha256": "bb3556f9e074d5dca40354f52365f8e3058906325d575327d9ed02f2fcbc3517",
+      "bytes": 374837
+    },
+    {
+      "path": "charts/val/Linear_pred_AAPL.png",
+      "sha256": "9536a2e920d66f1e29c3bd292d538904b58a27bcb7ba4f61606838d60ab73849",
+      "bytes": 278968
+    },
+    {
+      "path": "charts/val/Linear_pred_AMZN.png",
+      "sha256": "aeabcca04157027a9a964cd9ad55202a5bc41b6c007bc7a3f38d3dfa9c567579",
+      "bytes": 253382
+    },
+    {
+      "path": "charts/val/Linear_pred_GOOG.png",
+      "sha256": "08db2e1ac46fcb8e8b63b03060a98c8e40ec85417538b2bb0604758c1ec48b7f",
+      "bytes": 281962
+    },
+    {
+      "path": "charts/val/Linear_pred_MSFT.png",
+      "sha256": "fd673f122e2d03162b3a54bf6505c85f44bc0cf2d9a5d421ada89c9682070614",
+      "bytes": 245411
+    },
+    {
+      "path": "charts/val/Linear_pred_TSLA.png",
+      "sha256": "d012cf3e68864a5c0025c824e4a5957ee39c0dada1326474482dc806f7fcb881",
+      "bytes": 333392
+    },
+    {
+      "path": "charts/val/SVR_pred_AAPL.png",
+      "sha256": "88f35e4e515201fe2af41504259c292be67b61b343858bea535fc70af0831f65",
+      "bytes": 280094
+    },
+    {
+      "path": "charts/val/SVR_pred_AMZN.png",
+      "sha256": "2aa8f8b1ee6dd640dc500a67663b98bc3cf168e312144894f0bd224e77b0fa3e",
+      "bytes": 252170
+    },
+    {
+      "path": "charts/val/SVR_pred_GOOG.png",
+      "sha256": "49d19a9806f8e239e66e0e906c275bf71b072726a38e7dba091e2a506296768e",
+      "bytes": 283162
+    },
+    {
+      "path": "charts/val/SVR_pred_MSFT.png",
+      "sha256": "8de42d023b51afebe5b86c5c1997a16aa25f46d8aba8001671314e92511ff99a",
+      "bytes": 253878
+    },
+    {
+      "path": "charts/val/SVR_pred_TSLA.png",
+      "sha256": "2643255c57093b5e91af2a97b7710ba6149b4984c9201b25e1911c090a2f7958",
+      "bytes": 337245
+    },
+    {
+      "path": "charts/val/XGBoost_pred_AAPL.png",
+      "sha256": "8c927add96e99ab02e4b904f11fb4f77555f745bb41be871c60a3e6cc1c1f9cf",
+      "bytes": 281244
+    },
+    {
+      "path": "charts/val/XGBoost_pred_AMZN.png",
+      "sha256": "271a6fb04c586909e3814d29bf6609d0a3c6d26b64dcf830f254343438688d96",
+      "bytes": 256786
+    },
+    {
+      "path": "charts/val/XGBoost_pred_GOOG.png",
+      "sha256": "b028190664b37bbf63e12d1db65cbbbfb9bd26aed082d29b008830aa17ecea78",
+      "bytes": 286322
+    },
+    {
+      "path": "charts/val/XGBoost_pred_MSFT.png",
+      "sha256": "7dd7dbb2984c6ad2d5dc01b85110d7220b1f5af03186cfe8068b29c97b242df8",
+      "bytes": 250744
+    },
+    {
+      "path": "charts/val/XGBoost_pred_TSLA.png",
+      "sha256": "1e16d5d3bbda12b0271bfaf749d1e1fc12d12e9cd0e7453b4cdbcee193118af8",
+      "bytes": 338513
+    },
+    {
+      "path": "charts/val/lstm_pred_AAPL.png",
+      "sha256": "9ea42ef4d4bac791fe320f07e142cdf283ef76f2e3c2eeea91e84fbe1fa8acae",
+      "bytes": 276217
+    },
+    {
+      "path": "charts/val/lstm_pred_AMZN.png",
+      "sha256": "ca6d4ebb5a4242f1beea39aa3e6a868e0aef69bb4ab248e01be3207138ba8093",
+      "bytes": 254206
+    },
+    {
+      "path": "charts/val/lstm_pred_GOOG.png",
+      "sha256": "9da8c114363e5ccf76c88f4db0e13a5f12738983d1cdf7188e2c19ce6331b2b8",
+      "bytes": 280069
+    },
+    {
+      "path": "charts/val/lstm_pred_MSFT.png",
+      "sha256": "8843e4ac617a44d13c9003019bfc6f8b636128f79b2f51b0440983acea0bbe33",
+      "bytes": 246155
+    },
+    {
+      "path": "charts/val/lstm_pred_TSLA.png",
+      "sha256": "a0d6d64f5702a1f7ae404753f8e6ea75dd5c0f529c41f562230044044266d858",
+      "bytes": 330275
+    },
+    {
+      "path": "data_preprocessing.py",
+      "sha256": "ef3a7e4de603ed66238f710c5d645edd03cb33fdbbd0415de813ca5f99c6ab14",
+      "bytes": 1807
+    },
+    {
+      "path": "data_serializer.py",
+      "sha256": "1920ba77a3454fe794c13da9586d2026481f614f67c15da343a078967630544f",
+      "bytes": 392
+    },
+    {
+      "path": "get_tweets.py",
+      "sha256": "5214fa70b0e737ca963cd5cad3e65cfc97649df464cc681f05bcef548087f17d",
+      "bytes": 1474
+    },
+    {
+      "path": "linear_pipeline.py",
+      "sha256": "74749097b15a90283d0b23ab8ab92ca60a6364155d4616d4f3caa5ee0c75f5e5",
+      "bytes": 1763
+    },
+    {
+      "path": "lstm/lstm_model.py",
+      "sha256": "8e65cf7f3acc6d11d359621af872bd38eeea3c448f71850fdf012b30d76830f1",
+      "bytes": 681
+    },
+    {
+      "path": "lstm/lstm_pipeline.py",
+      "sha256": "0d899d4dea2e446c3c0f8ab3ada46d2a81508fdcdc95705a292f69b759027cd2",
+      "bytes": 2822
+    },
+    {
+      "path": "lstm/lstm_trainer.py",
+      "sha256": "98c69185eedaf5a38cf3b108413d7331d5bb9f324e7611a4b8e10ab64ac9683a",
+      "bytes": 4809
+    },
+    {
+      "path": "main.py",
+      "sha256": "b5bb144cba4f39dba45fd24cbaded91fa91a9e5471217594f4d342dc946d8430",
+      "bytes": 2725
+    },
+    {
+      "path": "sentiment_analysis.py",
+      "sha256": "83a20470e47486c6751f8701ea154f43b013aacffddc989e38b5619e2535494b",
+      "bytes": 3169
+    },
+    {
+      "path": "stock_prices_acquisition.py",
+      "sha256": "9a91e49ee423c1d11ca4e948e5e78da8229c9205835e62e2ac425c33001ecce8",
+      "bytes": 471
+    },
+    {
+      "path": "utils.py",
+      "sha256": "4bd4f1d8bee0822ba6304a894a55712c84c6c120fc5331553dfcb47f9a775019",
+      "bytes": 1283
+    }
+  ]
+}
