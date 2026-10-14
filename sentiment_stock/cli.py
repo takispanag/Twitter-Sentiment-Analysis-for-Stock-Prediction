@@ -14,6 +14,8 @@ from .features import build_features
 from .research import run_research, forecast_latest
 from .trading import backtest, cost_sensitivity
 from .paper import record_forecasts, settle_forecasts, read_paper
+from .benchmark import (load_tfns, load_fintweet_2025, run_benchmark, prepare_annotations,
+                        run_stock_movement_text_track, import_equinxx_tweets)
 import hashlib
 import numpy as np
 
@@ -54,6 +56,34 @@ def _parser() -> argparse.ArgumentParser:
     paper_settle.add_argument("--prices", type=Path, required=True); paper_settle.add_argument("--db", type=Path, required=True)
     paper_status = commands.add_parser("paper-status", help="inspect pending and settled paper forecasts")
     paper_status.add_argument("--db", type=Path, required=True)
+    benchmark = commands.add_parser("benchmark-sentiment", help="benchmark published or local sentiment labels")
+    benchmark_source = benchmark.add_mutually_exclusive_group(required=True)
+    benchmark_source.add_argument("--source", choices=["tfns"], help="explicitly download the public TFNS dataset")
+    benchmark_source.add_argument("--input", type=Path, help="local CSV with text and label columns")
+    benchmark.add_argument("--text-column", default="text"); benchmark.add_argument("--label-column", default="label")
+    benchmark.add_argument("--split-column", default="split"); benchmark.add_argument("--id-column", default="post_id")
+    benchmark.add_argument("--output", type=Path, required=True)
+    benchmark.add_argument("--label-provenance", choices=["user_supplied", "published", "pilot"], default="user_supplied")
+    benchmark.add_argument("--annotation-metadata", type=Path, help="JSON attestation with anonymized IDs, qualifications, agreement, and adjudication evidence")
+    benchmark.add_argument("--models", default="majority,vader,tfidf_logreg", help="comma-separated: majority,vader,tfidf_logreg,finbert,twitter_roberta")
+    benchmark.add_argument("--seed", type=int, default=42); benchmark.add_argument("--validation-fraction", type=float, default=0.2)
+    benchmark.add_argument("--batch-size", type=int, default=16); benchmark.add_argument("--cache-dir", type=Path, default=Path("artifacts/sentiment-benchmark/cache"))
+    annotations = commands.add_parser("prepare-sentiment-annotations", help="make a blinded two-annotator finance-direction pilot batch")
+    annotations.add_argument("--posts", type=Path, required=True); annotations.add_argument("--output", type=Path, required=True)
+    annotations.add_argument("--sample-size", type=int, default=500); annotations.add_argument("--seed", type=int, default=42)
+    annotations.add_argument("--stratify-column", help="optional explicitly authorized sampling stratum column")
+    movement = commands.add_parser("benchmark-stock-movement", help="audit and optionally evaluate the separate exploratory FinTweet 2025 stock-movement track")
+    movement_source = movement.add_mutually_exclusive_group(required=True)
+    movement_source.add_argument("--source", choices=["fintweet-2025"], help="explicitly download michael-zus/fintweet-sentiment-2025")
+    movement_source.add_argument("--input", type=Path, help="local CSV with timestamp, text, split, and label columns")
+    movement.add_argument("--text-column", default="text"); movement.add_argument("--label-column", default="label_1d_3class")
+    movement.add_argument("--split-column", default="split"); movement.add_argument("--timestamp-column", default="timestamp")
+    movement.add_argument("--url-column", default="tweet_url"); movement.add_argument("--output", type=Path, required=True)
+    movement.add_argument("--models", default="majority,tfidf_logreg", help="comma-separated text-only baselines: majority,vader,tfidf_logreg")
+    movement.add_argument("--seed", type=int, default=42)
+    equinxx = commands.add_parser("import-equinxx-tweets", help="map a local Equinxx stock_tweets.csv to canonical posts")
+    equinxx.add_argument("--tweets", type=Path, required=True); equinxx.add_argument("--prices", type=Path, help="optional local stock_yfinance_data.csv")
+    equinxx.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -141,12 +171,46 @@ def main(argv: list[str] | None = None) -> int:
             records = read_paper(args.db)
             result = {"output": str(args.db), "pending_rows": int(records.status.eq("pending").sum()) if len(records) else 0,
                       "settled_rows": int(records.status.eq("settled").sum()) if len(records) else 0}
+        elif args.command == "benchmark-sentiment":
+            if args.source == "tfns":
+                labelled, source_metadata = load_tfns()
+            else:
+                labelled = pd.read_csv(args.input)
+                rename = {args.text_column: "text", args.label_column: "label"}
+                if args.split_column in labelled: rename[args.split_column] = "split"
+                if args.id_column in labelled: rename[args.id_column] = "post_id"
+                labelled = labelled.rename(columns=rename)
+                source_metadata = {"dataset_id": "local-labeled-input", "annotation_provenance": args.label_provenance}
+                if args.annotation_metadata:
+                    try:
+                        source_metadata.update(json.loads(args.annotation_metadata.read_text(encoding="utf-8")))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        raise ValueError(f"could not read annotation metadata: {exc}") from exc
+            result = run_benchmark(labelled, args.output, models=[model.strip() for model in args.models.split(",") if model.strip()],
+                seed=args.seed, validation_fraction=args.validation_fraction, batch_size=args.batch_size,
+                cache_dir=args.cache_dir, dataset_metadata=source_metadata, input_path=args.input if args.input else None)
+        elif args.command == "prepare-sentiment-annotations":
+            posts = pd.read_csv(args.posts)
+            result = prepare_annotations(posts, args.output, sample_size=args.sample_size, seed=args.seed, stratum_column=args.stratify_column)
+        elif args.command == "benchmark-stock-movement":
+            if args.source == "fintweet-2025":
+                movement_data, source_metadata = load_fintweet_2025()
+            else:
+                movement_data = pd.read_csv(args.input)
+                rename = {args.text_column: "text", args.label_column: "label_1d_3class", args.split_column: "split", args.timestamp_column: "timestamp"}
+                if args.url_column in movement_data: rename[args.url_column] = "tweet_url"
+                movement_data = movement_data.rename(columns=rename)
+                source_metadata = {"dataset_id": str(args.input), "dataset_sha256": _sha256_file(args.input), "source_provenance": "local user-supplied input"}
+            result = run_stock_movement_text_track(movement_data, args.output,
+                models=[model.strip() for model in args.models.split(",") if model.strip()], seed=args.seed, dataset_metadata=source_metadata)
+        elif args.command == "import-equinxx-tweets":
+            result = import_equinxx_tweets(args.tweets, args.output, prices_path=args.prices)
         else:
             posts = collect_x(args.query, args.start, args.end, args.ticker, args.output, archive=args.archive, max_pages=args.max_pages); result = {"output": str(args.output), "post_rows": len(posts)}
     except (ValueError, RuntimeError, OSError, ImportError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 1
     summary = [f"output={result['output']}"]
-    for field in ("price_rows", "post_rows", "forecast_rows", "metric_rows", "trade_rows", "recorded_rows", "settled_rows", "pending_rows"):
+    for field in ("price_rows", "post_rows", "forecast_rows", "metric_rows", "prediction_rows", "annotation_rows", "audit_issue_count", "trade_rows", "recorded_rows", "settled_rows", "pending_rows"):
         if field in result: summary.append(f"{field}={result[field]}")
     print(" ".join(summary))
     return 0
