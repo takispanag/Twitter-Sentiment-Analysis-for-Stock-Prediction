@@ -35,6 +35,8 @@ python -m pip install -e '.[nlp]'
 python -m sentiment_stock run --prices data/prices.csv --posts data/posts.csv --encoder finbert --output artifacts/finbert-run
 ```
 
+For an NVIDIA GPU, install the CUDA-enabled PyTorch wheel for your Windows/Python/CUDA setup before installing the NLP extra; the [official PyTorch selector](https://pytorch.org/get-started/locally/) provides the matching command. Verify access with `python -c "import torch; print(torch.cuda.is_available())"`. Transformer scoring automatically uses `cuda:0` when CUDA is available and records the selected device in run metadata; otherwise it runs on CPU.
+
 FinBERT and Twitter RoBERTa are pretrained on different corpora and periods; domain, class mapping, license, and temporal mismatch limit what their output scores mean. Record the model revision and dataset provenance with each benchmark. Model downloads are explicit commands and should be reviewed under each model and dataset's terms. The default `provided` encoder preserves local scores; `vader` is an offline lexicon baseline.
 
 ## Inputs and data provenance

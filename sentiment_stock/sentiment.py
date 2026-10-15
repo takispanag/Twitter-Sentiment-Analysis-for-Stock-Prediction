@@ -56,15 +56,22 @@ def score_posts(posts: pd.DataFrame, encoder: str = "vader") -> tuple[pd.DataFra
         cache.mkdir(parents=True, exist_ok=True)
         os.environ["HF_HOME"] = str(cache)
         try:
+            import torch
             import transformers
             from transformers import pipeline
         except ImportError as exc:
             raise RuntimeError(f"{mode} scoring requires the optional 'nlp' dependencies (transformers and torch)") from exc
         model_id = model_ids[mode]
         revision = MODEL_REVISIONS[mode]
-        classifier = pipeline("sentiment-analysis", model=model_id, tokenizer=model_id, device=-1, revision=revision)
+        if mode == "twitter":
+            metadata["training_corpus_period"] = "RoBERTa-base pretrained on about 124 million tweets from January 2018 to December 2021; fine-tuned for sentiment with TweetEval."
+            metadata["model_card_url"] = "https://huggingface.co/cardiffnlp/twitter-roberta-base-sentiment-latest"
+        device_index = 0 if torch.cuda.is_available() else -1
+        device_name = f"cuda:{device_index}" if device_index >= 0 else "cpu"
+        classifier = pipeline("sentiment-analysis", model=model_id, tokenizer=model_id, device=device_index, revision=revision)
         metadata["batch_size"] = 32
         metadata["max_length"] = 128
+        metadata["device"] = device_name
         outputs = classifier(texts, batch_size=32, truncation=True, max_length=128, top_k=None) if texts else []
         scores, probs = [], []
         for output in outputs:

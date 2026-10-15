@@ -36,7 +36,13 @@ def test_provided_scores_are_preserved():
     assert metadata["mode"] == "provided"
 
 
-def test_twitter_model_uses_a_pinned_revision(monkeypatch):
+@pytest.mark.parametrize(
+    ("cuda_available", "expected_device", "expected_device_name"),
+    [(False, -1, "cpu"), (True, 0, "cuda:0")],
+)
+def test_twitter_model_uses_a_pinned_revision_and_available_device(
+    monkeypatch, cuda_available, expected_device, expected_device_name
+):
     captured = {}
     inference_kwargs = {}
     expected_cache = str(Path(__file__).resolve().parents[1] / "artifacts" / "model-cache")
@@ -61,10 +67,16 @@ def test_twitter_model_uses_a_pinned_revision(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "transformers", types.SimpleNamespace(__version__="test", pipeline=fake_pipeline))
     monkeypatch.setattr(builtins, "__import__", guarded_import)
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda_available)
     scored, metadata = score_posts(pd.DataFrame({"text": ["$AAPL rises"]}), encoder="twitter")
 
     assert captured["revision"] == "3216a57f2a0d9c45a2e6c20157c20c49fb4bf9c7"
+    assert captured["device"] == expected_device
+    assert metadata["device"] == expected_device_name
     assert metadata["revision"] == captured["revision"]
+    assert "January 2018 to December 2021" in metadata["training_corpus_period"]
     assert scored.loc[0, "sentiment_score"] == pytest.approx(0.6)
     assert inference_kwargs["truncation"] is True
     assert inference_kwargs["max_length"] == 128
