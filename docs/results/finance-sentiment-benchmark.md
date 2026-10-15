@@ -16,7 +16,7 @@ All models below are evaluated on the same source-held-out examples. Lower Brier
 |---|---:|---:|---:|---:|---:|
 | Majority | 0.201 | 0.112 | 0.333 | 1.598 | 0.799 |
 | VADER | 0.484 | 0.440 | 0.475 | 1.033 | 0.516 |
-| Word/character TF-IDF + balanced logistic regression | 0.458 | 0.461 | 0.602 | 0.793 | 0.362 |
+| Word/character TF-IDF + balanced logistic regression | 0.458 | 0.461 | 0.602 | 0.668 | 0.120 |
 | FinBERT frozen | **0.715** | **0.663** | **0.704** | **0.417** | 0.109 |
 | Twitter-RoBERTa frozen | 0.692 | 0.593 | 0.575 | 0.430 | **0.076** |
 | FinBERT fine-tuned, full source train, 1 epoch | 0.547 | 0.548 | 0.696 | 0.665 | 0.249 |
