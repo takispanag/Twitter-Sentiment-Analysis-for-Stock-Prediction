@@ -28,4 +28,3 @@ sentiment-stock = "sentiment_stock.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["sentiment_stock*"]
-

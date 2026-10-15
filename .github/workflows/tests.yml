@@ -38,4 +38,3 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[test,models]"
       - run: python -m pytest tests/test_research.py -q -k optional_xgboost_and_torch
-

@@ -78,4 +78,3 @@ def test_twitter_model_uses_a_pinned_revision_and_available_device(
     assert scored.loc[0, "sentiment_score"] == pytest.approx(0.6)
     assert inference_kwargs["truncation"] is True
     assert inference_kwargs["max_length"] == 128
-

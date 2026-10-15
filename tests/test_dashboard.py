@@ -172,4 +172,3 @@ def test_dashboard_renders_source_audit_and_calibration_views(tmp_path, monkeypa
     assert app.selectbox(key="benchmark_run").value == "run1"
     assert any("No ticker or timestamp" in item.value for item in app.warning)
     assert any("Probability quality" in item.value for item in app.markdown)
-
