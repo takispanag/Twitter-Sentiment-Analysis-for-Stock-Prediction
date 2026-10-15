@@ -43,6 +43,18 @@ def test_optional_xgboost_and_torch_models_run_on_small_folds(tmp_path):
     xgb_pipeline = joblib.load(next((tmp_path / "models").glob("*_xgboost_price_sentiment.joblib")))
     assert np.isfinite(xgb_pipeline.predict(frame.iloc[[0]][["close_return", "volatility_5", "momentum_5", "momentum_20", "volume_change", "volume_mean_5", "post_count_log", "unique_authors_log", "sentiment_mean", "sentiment_std", "sentiment_positive_fraction", "sentiment_neutral_fraction", "sentiment_negative_fraction", "sentiment_change", "sentiment_mean_5", "sentiment_missing"]].to_numpy())).all()
 
+def test_optional_xgboost_smoke_without_torch(tmp_path):
+    pytest.importorskip("xgboost")
+    frame = research_frame(24)
+    result = run_research(frame, tmp_path, seed=7, n_splits=1, include_models=True)
+    assert "xgboost" in result["models"]
+    forecasts = pd.read_csv(tmp_path / "forecasts.csv")
+    assert "xgboost" in set(forecasts.model)
+    import joblib
+    pipeline = joblib.load(next((tmp_path / "models").glob("*_xgboost_price_sentiment.joblib")))
+    columns = ["close_return", "volatility_5", "momentum_5", "momentum_20", "volume_change", "volume_mean_5", "post_count_log", "unique_authors_log", "sentiment_mean", "sentiment_std", "sentiment_positive_fraction", "sentiment_neutral_fraction", "sentiment_negative_fraction", "sentiment_change", "sentiment_mean_5", "sentiment_missing"]
+    assert np.isfinite(pipeline.predict(frame.iloc[[0]][columns].to_numpy())).all()
+
 def test_forward_forecast_uses_latest_closed_row_without_target_prices(tmp_path):
     input_dir = tmp_path / "inputs"
     make_demo(input_dir, sessions=24, seed=3)

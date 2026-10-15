@@ -164,4 +164,4 @@ The equal-weight buy-and-hold comparator invests at the first eligible open, inc
 
 ## Tests and CI
 
-Run the local suite with `python -m pytest`. It covers data timing, causal features, walk-forward split alignment, legacy regressions, trading accounting, paper-record eligibility, and Streamlit AppTest interactions. GitHub Actions tests only Python 3.15, including the optional XGBoost/PyTorch smoke check. Package metadata still allows Python 3.11 and later, but those older versions are not tested in CI.
+Run the local suite with `python -m pytest`. It covers data timing, causal features, walk-forward split alignment, legacy regressions, trading accounting, paper-record eligibility, and Streamlit AppTest interactions. GitHub Actions tests only Python 3.15, including an optional XGBoost smoke check. The PyTorch LSTM remains an optional local model; PyTorch currently does not publish Python 3.15 wheels. Package metadata still allows Python 3.11 and later, but those older versions are not tested in CI.
