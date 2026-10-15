@@ -9,6 +9,11 @@ from importlib.metadata import version as package_version
 import numpy as np
 import pandas as pd
 
+MODEL_REVISIONS = {
+    "finbert": "0bc2ac10dda6929bcb1f77ccc43c7ec5c424f031",
+    "twitter": "3216a57f2a0d9c45a2e6c20157c20c49fb4bf9c7",
+}
+
 
 def score_posts(posts: pd.DataFrame, encoder: str = "vader") -> tuple[pd.DataFrame, dict]:
     """Return continuous sentiment scores, keeping one output row per input post."""
@@ -47,18 +52,20 @@ def score_posts(posts: pd.DataFrame, encoder: str = "vader") -> tuple[pd.DataFra
         metadata["package_version"] = package_version("vaderSentiment")
         metadata["revision"] = metadata["package_version"]
     else:
+        cache = Path(__file__).resolve().parents[1] / "artifacts" / "model-cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        os.environ["HF_HOME"] = str(cache)
         try:
             import transformers
             from transformers import pipeline
         except ImportError as exc:
             raise RuntimeError(f"{mode} scoring requires the optional 'nlp' dependencies (transformers and torch)") from exc
         model_id = model_ids[mode]
-        cache = Path(__file__).resolve().parents[1] / "artifacts" / "model-cache"
-        cache.mkdir(parents=True, exist_ok=True)
-        os.environ["HF_HOME"] = str(cache)
-        os.environ["TRANSFORMERS_CACHE"] = str(cache)
-        classifier = pipeline("sentiment-analysis", model=model_id, tokenizer=model_id, device=-1)
-        outputs = classifier(texts, batch_size=32, truncation=True, top_k=None) if texts else []
+        revision = MODEL_REVISIONS[mode]
+        classifier = pipeline("sentiment-analysis", model=model_id, tokenizer=model_id, device=-1, revision=revision)
+        metadata["batch_size"] = 32
+        metadata["max_length"] = 128
+        outputs = classifier(texts, batch_size=32, truncation=True, max_length=128, top_k=None) if texts else []
         scores, probs = [], []
         for output in outputs:
             labels = {str(item["label"]).casefold(): float(item["score"]) for item in output}
@@ -75,7 +82,7 @@ def score_posts(posts: pd.DataFrame, encoder: str = "vader") -> tuple[pd.DataFra
         result[["prob_positive", "prob_negative", "prob_neutral"]] = pd.DataFrame(probs, index=result.index, columns=["prob_positive", "prob_negative", "prob_neutral"])
         metadata["transformers_version"] = transformers.__version__
         metadata["torch_version"] = package_version("torch")
-        metadata["revision"] = getattr(classifier.model.config, "_commit_hash", None) or "model default revision at download time"
+        metadata["revision"] = getattr(classifier.model.config, "_commit_hash", None) or revision
     result["sentiment_score"] = np.asarray(scores, dtype=float)
     if not np.isfinite(result["sentiment_score"].to_numpy()).all():
         raise ValueError("encoder returned nonfinite scores")
