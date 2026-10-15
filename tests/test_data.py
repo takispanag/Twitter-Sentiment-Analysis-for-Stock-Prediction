@@ -82,8 +82,9 @@ def test_adjustment_overflow_is_rejected_after_scaling():
 def test_yahoo_download_adapter_works_without_new_multilevel_argument(monkeypatch, tmp_path):
     index = pd.DatetimeIndex(["2020-11-27"], name="Date")
 
-    def download(tickers, start, end, auto_adjust, actions, progress):
+    def download(tickers, start, end, auto_adjust, actions, progress, threads):
         assert auto_adjust is True
+        assert threads is False
         return pd.DataFrame({"Open": [10], "High": [11], "Low": [9], "Close": [10], "Volume": [1]}, index=index)
 
     monkeypatch.setitem(__import__("sys").modules, "yfinance", types.SimpleNamespace(download=download))

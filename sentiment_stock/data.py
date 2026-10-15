@@ -313,7 +313,7 @@ def fetch_prices(tickers: list[str], start: str, end: str, output: Path) -> pd.D
     except ImportError as exc:
         raise RuntimeError("Install the 'models' or core project dependencies to use fetch-prices (yfinance is required).") from exc
     tickers = [str(ticker).upper() for ticker in tickers]
-    raw = yf.download(tickers=tickers, start=start, end=end, auto_adjust=True, actions=False, progress=False)
+    raw = yf.download(tickers=tickers, start=start, end=end, auto_adjust=True, actions=False, progress=False, threads=False)
     if raw is None or raw.empty:
         raise ValueError("Yahoo Finance returned no rows; check ticker symbols, date bounds, and network access")
     if isinstance(raw.columns, pd.MultiIndex):
