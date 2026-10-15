@@ -143,7 +143,7 @@ def test_settlement_rejects_duplicate_prices_after_ticker_normalization(tmp_path
     db = tmp_path / "paper.sqlite"
     record_forecasts(db, pd.DataFrame([forward()]), recorded_at=NOW)
     duplicate = pd.concat([prices(), prices(ticker="aaa", close=120)], ignore_index=True)
-    duplicate.loc[1, "date"] = pd.Timestamp("2026-01-06")
+    duplicate.loc[1, "date"] = "2026-01-06"
     with pytest.raises(ValueError, match="duplicate"):
         settle_forecasts(db, duplicate, as_of="2026-01-06T22:00:00Z")
     assert read_paper(db).iloc[0].status == "pending"

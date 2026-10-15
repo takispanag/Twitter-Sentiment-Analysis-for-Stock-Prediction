@@ -7,6 +7,7 @@ import types
 from importlib.metadata import version
 from pathlib import Path
 
+import sentiment_stock.sentiment as sentiment_module
 from sentiment_stock.sentiment import score_posts
 
 
@@ -67,12 +68,14 @@ def test_twitter_model_uses_a_pinned_revision_and_available_device(
 
     monkeypatch.setitem(sys.modules, "transformers", types.SimpleNamespace(__version__="test", pipeline=fake_pipeline))
     monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: cuda_available)))
+    monkeypatch.setattr(sentiment_module, "package_version", lambda name: "test")
     monkeypatch.setattr(builtins, "__import__", guarded_import)
     scored, metadata = score_posts(pd.DataFrame({"text": ["$AAPL rises"]}), encoder="twitter")
 
     assert captured["revision"] == "3216a57f2a0d9c45a2e6c20157c20c49fb4bf9c7"
     assert captured["device"] == expected_device
     assert metadata["device"] == expected_device_name
+    assert metadata["torch_version"] == "test"
     assert metadata["revision"] == captured["revision"]
     assert "January 2018 to December 2021" in metadata["training_corpus_period"]
     assert scored.loc[0, "sentiment_score"] == pytest.approx(0.6)
