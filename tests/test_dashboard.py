@@ -11,7 +11,7 @@ from sentiment_stock.demo import make_demo
 from sentiment_stock.features import build_features
 from sentiment_stock.research import run_research
 from sentiment_stock.sentiment import score_posts
-from dashboard import _sentiment_lift_table
+from dashboard import _forecast_outcomes, _sentiment_lift_table
 
 
 APP_PATH = Path(__file__).resolve().parents[1] / "dashboard.py"
@@ -122,6 +122,21 @@ def test_research_forecast_chart_filter_selects_one_feature_set(saved_run):
 
     assert not app.exception
     assert any("Forecast chart · feature set: price_attention" in item.value for item in app.caption)
+
+
+def test_forecast_outcomes_keep_return_target_and_derive_conditional_close():
+    forecasts = pd.DataFrame([{
+        "ticker": "AAPL", "target_date": "2024-01-04", "target_kind": "return",
+        "prediction": 0.02, "actual": 0.01, "target_open": 100.0, "target_close": 101.0,
+    }])
+
+    outcomes = _forecast_outcomes(forecasts)
+
+    assert outcomes.loc[0, "predicted_return"] == pytest.approx(0.02)
+    assert outcomes.loc[0, "actual_return"] == pytest.approx(0.01)
+    assert outcomes.loc[0, "predicted_close"] == pytest.approx(102.0)
+    assert outcomes.loc[0, "actual_close"] == pytest.approx(101.0)
+    assert outcomes.loc[0, "target_date"] == pd.Timestamp("2024-01-04")
 
 
 def test_sentiment_lift_table_compares_paired_feature_sets_across_folds():

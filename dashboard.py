@@ -102,6 +102,34 @@ def _sentiment_lift_table(metrics: pd.DataFrame) -> pd.DataFrame:
     return result[columns].dropna(subset=["mae_improvement_pct"]).sort_values(["ticker", "model"]).reset_index(drop=True)
 
 
+def _forecast_outcomes(forecasts: pd.DataFrame) -> pd.DataFrame:
+    """Add comparable realized returns and closes implied by saved forecasts."""
+    outcomes = forecasts.copy()
+    def numeric_column(name: str) -> pd.Series:
+        values = outcomes[name] if name in outcomes else pd.Series(float("nan"), index=outcomes.index)
+        return pd.to_numeric(values, errors="coerce")
+
+    target_dates = outcomes["target_date"] if "target_date" in outcomes else pd.Series(pd.NaT, index=outcomes.index)
+    outcomes["target_date"] = pd.to_datetime(target_dates, errors="coerce")
+    outcomes["predicted_return"] = numeric_column("prediction")
+    outcomes["actual_return"] = numeric_column("actual")
+    target_kind = outcomes.get("target_kind", pd.Series("return", index=outcomes.index)).fillna("return").astype(str)
+    outcomes["target_kind"] = target_kind
+    target_open = numeric_column("target_open")
+    target_close = numeric_column("target_close")
+    outcomes["predicted_close"] = float("nan")
+    outcomes["actual_close"] = target_close
+
+    return_mask = target_kind.eq("return")
+    outcomes.loc[return_mask, "predicted_close"] = (
+        target_open.loc[return_mask] * (1 + outcomes.loc[return_mask, "predicted_return"])
+    )
+    next_close_mask = target_kind.eq("next_close")
+    outcomes.loc[next_close_mask, "predicted_close"] = outcomes.loc[next_close_mask, "predicted_return"]
+    outcomes.loc[next_close_mask, "actual_close"] = outcomes.loc[next_close_mask, "actual_return"]
+    return outcomes.sort_values(["ticker", "target_date"], kind="stable")
+
+
 def _banner(metadata: dict) -> None:
     kind = str(metadata.get("dataset_type", "unspecified")).casefold()
     raw = metadata.get("dataset_metadata")
@@ -161,6 +189,50 @@ def _render_research(data: dict, forecasts: pd.DataFrame, metrics: pd.DataFrame)
             chart = px.line(selected, x="feature_date", y="prediction", color="ticker", title="Saved forecast traces", labels={"feature_date": "Feature session", "prediction": "Predicted next-session return", "ticker": "Ticker"}, color_discrete_sequence=["#157a78", "#c68731", "#31485e", "#b4654a"])
             chart.update_layout(template="plotly_white", legend_title_text="Ticker", margin=dict(l=16, r=16, t=55, b=16))
             st.plotly_chart(chart, **_stretch())
+            outcomes = _forecast_outcomes(selected)
+            return_rows = outcomes.loc[outcomes["target_kind"].fillna("return").astype(str).eq("return")].dropna(subset=["target_date", "predicted_return", "actual_return"])
+            if not return_rows.empty:
+                st.markdown("#### Predicted vs actual next-session return")
+                st.caption("Each date compares the model forecast with the realized open-to-close return for that ticker.")
+                return_long = return_rows.melt(
+                    id_vars=["ticker", "target_date"],
+                    value_vars=["predicted_return", "actual_return"],
+                    var_name="series",
+                    value_name="return",
+                )
+                return_long["series"] = return_long["series"].map({"predicted_return": "Predicted", "actual_return": "Actual"})
+                return_chart = px.line(
+                    return_long, x="target_date", y="return", color="ticker", line_dash="series", markers=True,
+                    title="Predicted vs actual return by target session",
+                    labels={"target_date": "Target session", "return": "Open-to-close return", "ticker": "Ticker", "series": "Series"},
+                )
+                return_chart.update_layout(template="plotly_white", margin=dict(l=16, r=16, t=55, b=16))
+                return_chart.update_yaxes(tickformat=".1%")
+                st.plotly_chart(return_chart, **_stretch())
+
+            price_rows = outcomes.dropna(subset=["target_date", "predicted_close", "actual_close"])
+            if not price_rows.empty:
+                st.markdown("#### Predicted vs actual target close")
+                conditional_on_open = price_rows["target_kind"].fillna("return").astype(str).eq("return").any()
+                if conditional_on_open:
+                    st.caption("Price diagnostic: predicted close is implied from the realized next-session open and the return forecast. That open is only known after the forecast time, so this is not a point-in-time close-price forecast.")
+                else:
+                    st.caption("This run predicts the next-session close price directly; the chart compares that forecast with the realized close.")
+                predicted_close_label = "Predicted (implied)" if conditional_on_open else "Predicted"
+                price_long = price_rows.melt(
+                    id_vars=["ticker", "target_date"],
+                    value_vars=["predicted_close", "actual_close"],
+                    var_name="series",
+                    value_name="close_price",
+                )
+                price_long["series"] = price_long["series"].map({"predicted_close": predicted_close_label, "actual_close": "Actual"})
+                price_chart = px.line(
+                    price_long, x="target_date", y="close_price", color="ticker", line_dash="series", markers=True,
+                    title="Target close price by ticker",
+                    labels={"target_date": "Target session", "close_price": "Close price", "ticker": "Ticker", "series": "Series"},
+                )
+                price_chart.update_layout(template="plotly_white", margin=dict(l=16, r=16, t=55, b=16))
+                st.plotly_chart(price_chart, **_stretch())
     st.download_button("Download filtered forecasts", forecasts.to_csv(index=False).encode("utf-8"), "forecasts.csv", "text/csv")
     st.download_button("Download model metrics", metrics.to_csv(index=False).encode("utf-8"), "metrics.csv", "text/csv")
     sample = data.get("posts")
