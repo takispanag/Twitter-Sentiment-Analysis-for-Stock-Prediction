@@ -11,6 +11,7 @@ from sentiment_stock.demo import make_demo
 from sentiment_stock.features import build_features
 from sentiment_stock.research import run_research
 from sentiment_stock.sentiment import score_posts
+from dashboard import _sentiment_lift_table
 
 
 APP_PATH = Path(__file__).resolve().parents[1] / "dashboard.py"
@@ -123,6 +124,29 @@ def test_research_forecast_chart_filter_selects_one_feature_set(saved_run):
     assert any("Forecast chart · feature set: price_attention" in item.value for item in app.caption)
 
 
+def test_sentiment_lift_table_compares_paired_feature_sets_across_folds():
+    metrics = pd.DataFrame([
+        {"ticker": "AAPL", "model": "ridge", "feature_set": "price_attention", "fold": 1, "n": 10, "mae": 0.10},
+        {"ticker": "AAPL", "model": "ridge", "feature_set": "price_sentiment", "fold": 1, "n": 10, "mae": 0.08},
+        {"ticker": "AAPL", "model": "ridge", "feature_set": "price_attention", "fold": 2, "n": 30, "mae": 0.20},
+        {"ticker": "AAPL", "model": "ridge", "feature_set": "price_sentiment", "fold": 2, "n": 30, "mae": 0.22},
+        {"ticker": "MSFT", "model": "ridge", "feature_set": "price_attention", "fold": 1, "n": 10, "mae": 0.20},
+    ])
+
+    lift = _sentiment_lift_table(metrics)
+
+    assert lift.loc[0, "ticker"] == "AAPL"
+    assert lift.loc[0, "model"] == "ridge"
+    assert lift.loc[0, "mae_improvement_pct"] == pytest.approx(-5.7142857143)
+
+
+def test_research_dashboard_shows_sentiment_lift_chart(saved_run):
+    app = AppTest.from_file(APP_PATH).run()
+
+    assert not app.exception
+    assert any("Sentiment impact on held-out MAE" in item.value for item in app.markdown)
+
+
 def test_dashboard_renders_source_audit_and_calibration_views(tmp_path, monkeypatch):
     artifacts = tmp_path / "artifacts"
     benchmark = artifacts / "sentiment-benchmark" / "run1"
@@ -148,3 +172,4 @@ def test_dashboard_renders_source_audit_and_calibration_views(tmp_path, monkeypa
     assert app.selectbox(key="benchmark_run").value == "run1"
     assert any("No ticker or timestamp" in item.value for item in app.warning)
     assert any("Probability quality" in item.value for item in app.markdown)
+

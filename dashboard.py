@@ -73,6 +73,35 @@ def _format_return(value: object) -> str:
         return "—"
 
 
+def _sentiment_lift_table(metrics: pd.DataFrame) -> pd.DataFrame:
+    """Summarize observation-weighted held-out MAE change from adding sentiment."""
+    columns = ["ticker", "model", "mae_improvement_pct", "baseline_mae", "sentiment_mae"]
+    required = {"ticker", "model", "feature_set", "mae"}
+    if not required.issubset(metrics.columns):
+        return pd.DataFrame(columns=columns)
+    paired = metrics.loc[metrics.feature_set.isin(["price_attention", "price_sentiment"])]
+    if paired.empty:
+        return pd.DataFrame(columns=columns)
+    if "n" in paired:
+        paired = paired.copy()
+        paired["_n"] = pd.to_numeric(paired["n"], errors="coerce").fillna(0)
+        paired["_weighted_error"] = pd.to_numeric(paired["mae"], errors="coerce") * paired["_n"]
+        means = paired.groupby(["ticker", "model", "feature_set"], as_index=False, dropna=False).agg(
+            _weighted_error=("_weighted_error", "sum"), _n=("_n", "sum")
+        )
+        means["mae"] = (means["_weighted_error"] / means["_n"]).where(means["_n"].gt(0))
+    else:
+        means = paired.groupby(["ticker", "model", "feature_set"], as_index=False, dropna=False).mae.mean()
+    wide = means.pivot(index=["ticker", "model"], columns="feature_set", values="mae")
+    if not {"price_attention", "price_sentiment"}.issubset(wide.columns):
+        return pd.DataFrame(columns=columns)
+    result = wide.dropna(subset=["price_attention", "price_sentiment"]).reset_index()
+    baseline = result["price_attention"]
+    result["mae_improvement_pct"] = ((baseline - result["price_sentiment"]) / baseline * 100).where(baseline.ne(0))
+    result = result.rename(columns={"price_attention": "baseline_mae", "price_sentiment": "sentiment_mae"})
+    return result[columns].dropna(subset=["mae_improvement_pct"]).sort_values(["ticker", "model"]).reset_index(drop=True)
+
+
 def _banner(metadata: dict) -> None:
     kind = str(metadata.get("dataset_type", "unspecified")).casefold()
     raw = metadata.get("dataset_metadata")
@@ -98,6 +127,22 @@ def _render_research(data: dict, forecasts: pd.DataFrame, metrics: pd.DataFrame)
     metric_cols = [column for column in ("ticker", "model", "feature_set", "fold", "n", "mae", "rmse", "directional_accuracy", "no_post_share") if column in metric_view]
     st.markdown("#### Model and feature results")
     st.dataframe(metric_view[metric_cols], **_stretch(), hide_index=True)
+    lift = _sentiment_lift_table(metric_view)
+    if not lift.empty:
+        st.markdown("#### Sentiment impact on held-out MAE")
+        st.caption("Percent MAE reduction versus the same model using price and attention features. Positive values indicate lower held-out error after adding sentiment; values summarize available walk-forward folds.")
+        heatmap_data = lift.pivot(index="model", columns="ticker", values="mae_improvement_pct")
+        chart = px.imshow(
+            heatmap_data,
+            text_auto=".1f",
+            color_continuous_scale="RdYlGn",
+            color_continuous_midpoint=0,
+            aspect="auto",
+            labels={"x": "Ticker", "y": "Model", "color": "MAE reduction (%)"},
+            title="Sentiment impact on held-out MAE",
+        )
+        chart.update_layout(template="plotly_white", coloraxis_colorbar_title="MAE reduction (%)", margin=dict(l=16, r=16, t=55, b=16))
+        st.plotly_chart(chart, **_stretch())
     if "regimes" in data and not data["regimes"].empty:
         regimes = data["regimes"]
         regimes = regimes.loc[regimes.ticker.isin(forecasts.ticker.unique())]
@@ -444,3 +489,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

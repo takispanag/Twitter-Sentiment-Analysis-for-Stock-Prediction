@@ -164,4 +164,5 @@ The equal-weight buy-and-hold comparator invests at the first eligible open, inc
 
 ## Tests and CI
 
-Run the local suite with `python -m pytest`. It covers data timing, causal features, walk-forward split alignment, legacy regressions, trading accounting, paper-record eligibility, and Streamlit AppTest interactions. The GitHub workflow runs core tests on Python 3.11 and 3.12, then checks the optional XGBoost/PyTorch path separately without downloading transformer models.
+Run the local suite with `python -m pytest`. It covers data timing, causal features, walk-forward split alignment, legacy regressions, trading accounting, paper-record eligibility, and Streamlit AppTest interactions. The GitHub workflow runs core tests on Python 3.11 (the minimum supported version), 3.12 (an existing compatibility target), and 3.15 (the newest stable release), then checks the optional XGBoost/PyTorch path separately without downloading transformer models. Python 3.13 and 3.14 are not currently in the matrix.
+

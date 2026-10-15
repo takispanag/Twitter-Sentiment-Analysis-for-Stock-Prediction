@@ -66,10 +66,8 @@ def test_twitter_model_uses_a_pinned_revision_and_available_device(
         return FakeClassifier()
 
     monkeypatch.setitem(sys.modules, "transformers", types.SimpleNamespace(__version__="test", pipeline=fake_pipeline))
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: cuda_available)))
     monkeypatch.setattr(builtins, "__import__", guarded_import)
-    import torch
-
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda_available)
     scored, metadata = score_posts(pd.DataFrame({"text": ["$AAPL rises"]}), encoder="twitter")
 
     assert captured["revision"] == "3216a57f2a0d9c45a2e6c20157c20c49fb4bf9c7"
@@ -80,3 +78,4 @@ def test_twitter_model_uses_a_pinned_revision_and_available_device(
     assert scored.loc[0, "sentiment_score"] == pytest.approx(0.6)
     assert inference_kwargs["truncation"] is True
     assert inference_kwargs["max_length"] == 128
+
